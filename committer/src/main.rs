@@ -581,14 +581,111 @@ async fn stream_commit_message(
 // User Interaction
 // ============================================================================
 
-fn prompt_yes_no(prompt: &str) -> bool {
-    print!("{} [y/N] ", prompt);
-    io::stdout().flush().unwrap();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserAction {
+    Commit,
+    Cancel,
+    Retry,
+    Edit,
+}
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+fn prompt_action(prompt: &str) -> UserAction {
+    loop {
+        print!("{} [y]es / [n]o / [r]etry / [e]dit: ", prompt);
+        io::stdout().flush().unwrap();
 
-    matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            return UserAction::Cancel;
+        }
+
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => return UserAction::Commit,
+            "n" | "no" => return UserAction::Cancel,
+            "r" | "retry" => return UserAction::Retry,
+            "e" | "edit" => return UserAction::Edit,
+            "" => return UserAction::Cancel, // Enter defaults to cancel
+            _ => {
+                println!("Invalid choice. Please enter y, n, r, or e.");
+                continue;
+            }
+        }
+    }
+}
+
+fn get_editor() -> Option<String> {
+    // Try environment variables first
+    if let Ok(editor) = std::env::var("EDITOR") {
+        if !editor.is_empty() {
+            return Some(editor);
+        }
+    }
+    if let Ok(visual) = std::env::var("VISUAL") {
+        if !visual.is_empty() {
+            return Some(visual);
+        }
+    }
+
+    // Fallback to common editors
+    #[cfg(windows)]
+    let fallbacks = ["notepad"];
+    #[cfg(not(windows))]
+    let fallbacks = ["vim", "vi", "nano"];
+
+    for editor in fallbacks {
+        if std::process::Command::new("which")
+            .arg(editor)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Some(editor.to_string());
+        }
+    }
+
+    None
+}
+
+fn edit_message(message: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let editor = get_editor().ok_or("No editor found. Set $EDITOR environment variable.")?;
+
+    // Create temp file with the message
+    let temp_dir = std::env::temp_dir();
+    let temp_path = temp_dir.join("committer_msg.txt");
+
+    // Write message with helpful comments
+    let content = format!(
+        "{}\n\n# Edit your commit message above.\n# Lines starting with '#' will be removed.\n# Save and close the editor to continue.\n# Leave empty to cancel the commit.\n",
+        message
+    );
+    std::fs::write(&temp_path, &content)?;
+
+    // Open editor and wait for it to close
+    let status = std::process::Command::new(&editor)
+        .arg(&temp_path)
+        .status()?;
+
+    if !status.success() {
+        std::fs::remove_file(&temp_path).ok();
+        return Err(format!("Editor '{}' exited with error", editor).into());
+    }
+
+    // Read the edited content
+    let edited = std::fs::read_to_string(&temp_path)?;
+
+    // Clean up temp file
+    std::fs::remove_file(&temp_path).ok();
+
+    // Remove comment lines and trim
+    let cleaned: String = edited
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+
+    Ok(cleaned)
 }
 
 // ============================================================================
@@ -738,28 +835,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder()
         .build()?;
 
-    // Stream the commit message
-    eprint!("Generating commit message...");
-    let message = stream_commit_message(&client, &api_key, model, &config, &diff, &files).await?;
+    // Main generation loop - allows retry
+    loop {
+        // Stream the commit message
+        eprint!("Generating commit message...");
+        let message = stream_commit_message(&client, &api_key, model, &config, &diff, &files).await?;
 
-    if message.is_empty() {
-        eprintln!("Error: Empty commit message generated");
-        std::process::exit(1);
+        if message.is_empty() {
+            eprintln!("Error: Empty commit message generated");
+            std::process::exit(1);
+        }
+
+        // Handle commit logic
+        if cli.dry_run {
+            // Don't commit, just exit
+            return Ok(());
+        }
+
+        // Auto-commit if --yes flag or config is set
+        if cli.yes || config.auto_commit {
+            run_git_commit(&message).await?;
+            return Ok(());
+        }
+
+        // Interactive prompt
+        match prompt_action("\nCommit with this message?") {
+            UserAction::Commit => {
+                run_git_commit(&message).await?;
+                return Ok(());
+            }
+            UserAction::Cancel => {
+                println!("Commit cancelled.");
+                return Ok(());
+            }
+            UserAction::Retry => {
+                println!("\nRegenerating...\n");
+                continue;
+            }
+            UserAction::Edit => {
+                match edit_message(&message) {
+                    Ok(edited) => {
+                        if edited.is_empty() {
+                            println!("Empty message. Commit cancelled.");
+                            return Ok(());
+                        }
+                        println!("\nEdited message:\n{}\n", edited);
+                        // After editing, ask for confirmation (no retry option)
+                        print!("Commit with this message? [y/N]: ");
+                        io::stdout().flush().unwrap();
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).unwrap();
+                        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                            run_git_commit(&edited).await?;
+                        } else {
+                            println!("Commit cancelled.");
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("Error editing message: {}", e);
+                        println!("Continuing with original message...\n");
+                        continue;
+                    }
+                }
+            }
+        }
     }
-
-    // Handle commit logic
-    if cli.dry_run {
-        // Don't commit, just exit
-        return Ok(());
-    }
-
-    let should_commit = cli.yes || config.auto_commit || prompt_yes_no("\nCommit with this message?");
-
-    if should_commit {
-        run_git_commit(&message).await?;
-    } else {
-        println!("\nCommit cancelled.");
-    }
-
-    Ok(())
 }
