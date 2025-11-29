@@ -626,24 +626,28 @@ fn get_editor() -> Option<String> {
         }
     }
 
-    // Fallback to common editors
+    // Platform-specific fallbacks
     #[cfg(windows)]
-    let fallbacks = ["notepad"];
-    #[cfg(not(windows))]
-    let fallbacks = ["vim", "vi", "nano"];
-
-    for editor in fallbacks {
-        if std::process::Command::new("which")
-            .arg(editor)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            return Some(editor.to_string());
-        }
+    {
+        // notepad is always available on Windows
+        return Some("notepad".to_string());
     }
 
-    None
+    #[cfg(not(windows))]
+    {
+        let fallbacks = ["vim", "vi", "nano"];
+        for editor in fallbacks {
+            if std::process::Command::new("which")
+                .arg(editor)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                return Some(editor.to_string());
+            }
+        }
+        None
+    }
 }
 
 fn edit_message(message: &str) -> Result<String, Box<dyn std::error::Error>> {
