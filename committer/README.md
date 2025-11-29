@@ -9,6 +9,7 @@ A fast, AI-powered git commit message generator using OpenRouter.
 - ⚡ **Async** - Parallel git operations and non-blocking I/O
 - 🔧 **Configurable** - Persistent settings for auto-commit, model selection, and message formats
 - 📝 **Flexible Formats** - Multiple built-in commit message styles + custom templates
+- 🔄 **Interactive** - Retry generation or edit messages before committing
 
 ## Installation
 
@@ -158,7 +159,28 @@ format = "conventional"
 2. Stage them with `git add` (or use `committer --all`)
 3. Run `committer`
 4. Watch the AI-generated message stream in real-time
-5. Confirm to commit, or press N to cancel
+5. Choose from the interactive prompt:
+   - **y** - Commit with this message
+   - **n** - Cancel and exit
+   - **r** - Regenerate a new message
+   - **e** - Edit the message in your `$EDITOR`
+
+### Interactive Options
+
+After generating a commit message, you'll see:
+
+```
+Commit with this message? [y]es / [n]o / [r]etry / [e]dit:
+```
+
+| Option | Description |
+|--------|-------------|
+| `y` / `yes` | Accept the message and create the commit |
+| `n` / `no` | Cancel without committing |
+| `r` / `retry` | Generate a new message (useful if the AI missed something) |
+| `e` / `edit` | Open the message in your editor for manual tweaking |
+
+The edit option uses `$EDITOR` or `$VISUAL` environment variables, falling back to `vim`, `vi`, or `nano`.
 
 ## Default Model
 
