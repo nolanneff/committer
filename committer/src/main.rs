@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,201 @@ use tokio::process::Command;
 const DEFAULT_MODEL: &str = "x-ai/grok-4.1-fast:free";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+// ============================================================================
+// Commit Message Formats
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CommitFormat {
+    /// Conventional Commits: type(scope): description
+    #[default]
+    Conventional,
+    /// Simple one-line description
+    Simple,
+    /// Gitmoji style: 🎨 Add feature
+    Gitmoji,
+    /// Detailed multi-paragraph format
+    Detailed,
+    /// Minimal imperative style
+    Imperative,
+    /// Custom format using user-defined template
+    Custom,
+}
+
+impl std::fmt::Display for CommitFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommitFormat::Conventional => write!(f, "conventional"),
+            CommitFormat::Simple => write!(f, "simple"),
+            CommitFormat::Gitmoji => write!(f, "gitmoji"),
+            CommitFormat::Detailed => write!(f, "detailed"),
+            CommitFormat::Imperative => write!(f, "imperative"),
+            CommitFormat::Custom => write!(f, "custom"),
+        }
+    }
+}
+
+impl CommitFormat {
+    fn get_template(&self) -> &'static str {
+        match self {
+            CommitFormat::Conventional => {
+                r#"Generate a commit message using Conventional Commits format.
+
+Format: type(scope): description
+
+Types (pick the most appropriate):
+- feat: A new feature
+- fix: A bug fix
+- docs: Documentation only changes
+- style: Formatting, missing semicolons, etc (no code change)
+- refactor: Code restructuring without changing behavior
+- perf: Performance improvements
+- test: Adding or updating tests
+- build: Build system or dependency changes
+- ci: CI/CD configuration changes
+- chore: Maintenance tasks, tooling, etc
+
+Rules:
+- Scope is optional but encouraged (e.g., auth, api, ui)
+- First line must be under 72 characters
+- Use imperative mood ("add" not "added")
+- No period at the end of the subject line
+- Optionally add a blank line and bullet points for complex changes
+- Output ONLY the commit message, no explanations"#
+            }
+            CommitFormat::Simple => {
+                r#"Generate a simple, clear git commit message.
+
+Rules:
+- Single line, under 72 characters
+- Start with a capital letter
+- Use imperative mood ("Add" not "Added")
+- No period at the end
+- Be specific but concise
+- Output ONLY the commit message, no explanations"#
+            }
+            CommitFormat::Gitmoji => {
+                r#"Generate a commit message with a gitmoji prefix.
+
+Format: <emoji> <description>
+
+Common gitmojis:
+✨ New feature
+🐛 Bug fix
+📝 Documentation
+🎨 Style/formatting
+♻️ Refactoring
+⚡ Performance
+✅ Tests
+🔧 Configuration
+🏗️ Architecture changes
+🔥 Remove code/files
+🚀 Deploy
+📦 Dependencies
+🔒 Security
+🩹 Simple fix
+➕ Add dependency
+➖ Remove dependency
+🚚 Move/rename files
+💄 UI/style changes
+
+Rules:
+- Use exactly one emoji at the start
+- Keep description under 60 characters
+- Use imperative mood
+- No period at the end
+- Output ONLY the commit message, no explanations"#
+            }
+            CommitFormat::Detailed => {
+                r#"Generate a detailed git commit message with subject and body.
+
+Format:
+<subject line>
+
+<body paragraph explaining what and why>
+
+<optional bullet points for specific changes>
+
+Rules:
+- Subject line under 72 characters, imperative mood
+- Blank line between subject and body
+- Body should explain WHAT changed and WHY (not how)
+- Wrap body at 72 characters
+- Use bullet points for multiple distinct changes
+- Output ONLY the commit message, no explanations"#
+            }
+            CommitFormat::Imperative => {
+                r#"Generate a minimal imperative commit message.
+
+Rules:
+- Start with a verb in imperative mood (Add, Fix, Update, Remove, Refactor)
+- Single line, under 50 characters preferred, 72 max
+- No type prefix, no scope, no emoji
+- No period at the end
+- Be direct and specific
+- Output ONLY the commit message, no explanations"#
+            }
+            CommitFormat::Custom => {
+                // Custom format uses user's template, this is fallback
+                r#"Generate a git commit message.
+
+Rules:
+- Keep it concise and descriptive
+- Use imperative mood
+- Output ONLY the commit message, no explanations"#
+            }
+        }
+    }
+
+    fn get_examples(&self) -> &'static str {
+        match self {
+            CommitFormat::Conventional => {
+                r#"Examples:
+- feat(auth): add OAuth2 login support
+- fix(api): handle null response from payment gateway
+- refactor(ui): extract button component from form
+- docs: update API endpoint documentation
+- chore(deps): bump tokio to 1.35"#
+            }
+            CommitFormat::Simple => {
+                r#"Examples:
+- Add user authentication
+- Fix crash on empty input
+- Update README with examples
+- Remove deprecated API calls"#
+            }
+            CommitFormat::Gitmoji => {
+                r#"Examples:
+- ✨ Add dark mode toggle
+- 🐛 Fix memory leak in parser
+- 📝 Update installation guide
+- ♻️ Extract validation logic"#
+            }
+            CommitFormat::Detailed => {
+                r#"Example:
+Add rate limiting to API endpoints
+
+Implement token bucket rate limiting to prevent abuse and ensure
+fair usage across all API consumers. The default limit is set to
+100 requests per minute per API key.
+
+- Add RateLimiter middleware
+- Configure limits in settings.toml
+- Return 429 status with Retry-After header"#
+            }
+            CommitFormat::Imperative => {
+                r#"Examples:
+- Add caching layer
+- Fix login redirect
+- Update dependencies
+- Remove dead code"#
+            }
+            CommitFormat::Custom => "",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
     #[serde(default)]
@@ -21,6 +216,12 @@ struct Config {
     model: String,
     #[serde(default)]
     api_key: Option<String>,
+    #[serde(default)]
+    format: CommitFormat,
+    #[serde(default)]
+    custom_template: Option<String>,
+    #[serde(default)]
+    extra_instructions: Option<String>,
 }
 
 fn default_model() -> String {
@@ -33,6 +234,9 @@ impl Default for Config {
             auto_commit: false,
             model: default_model(),
             api_key: None,
+            format: CommitFormat::default(),
+            custom_template: None,
+            extra_instructions: None,
         }
     }
 }
@@ -97,6 +301,14 @@ struct Cli {
     /// Override model for this run
     #[arg(short, long)]
     model: Option<String>,
+
+    /// Override commit format for this run
+    #[arg(short, long, value_enum)]
+    format: Option<CommitFormat>,
+
+    /// Add extra instructions for this run only
+    #[arg(short = 'i', long)]
+    instructions: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -127,6 +339,24 @@ enum ConfigAction {
         /// OpenRouter API key
         value: String,
     },
+    /// Set commit message format preset
+    Format {
+        /// Format preset: conventional, simple, gitmoji, detailed, imperative, custom
+        #[arg(value_enum)]
+        value: CommitFormat,
+    },
+    /// Set custom template for commit messages (used when format is 'custom')
+    Template {
+        /// Custom prompt template for the AI
+        value: String,
+    },
+    /// Add extra instructions to append to any format
+    Instructions {
+        /// Additional instructions (or "clear" to remove)
+        value: String,
+    },
+    /// Show available format presets with examples
+    Formats,
 }
 
 // ============================================================================
@@ -229,19 +459,43 @@ struct Delta {
     content: Option<String>,
 }
 
-fn build_prompt(diff: &str, files: &str) -> String {
-    format!(
-        r#"Generate a concise git commit message for the following changes.
+fn build_prompt(config: &Config, diff: &str, files: &str) -> String {
+    // Get the base template
+    let template = if config.format == CommitFormat::Custom {
+        config
+            .custom_template
+            .as_deref()
+            .unwrap_or(CommitFormat::Custom.get_template())
+    } else {
+        config.format.get_template()
+    };
 
-Rules:
-- Use conventional commit format: type(scope): description
-- Types: feat, fix, docs, style, refactor, perf, test, chore
-- Keep the first line under 72 characters
-- Optionally add bullet points for significant changes
-- Be specific about what changed, not why
-- No quotes around the message
+    // Get examples for the format
+    let examples = config.format.get_examples();
 
-Files changed:
+    // Build the prompt
+    let mut prompt = String::new();
+
+    // Add the template
+    prompt.push_str(template);
+    prompt.push_str("\n\n");
+
+    // Add examples if available
+    if !examples.is_empty() {
+        prompt.push_str(examples);
+        prompt.push_str("\n\n");
+    }
+
+    // Add extra instructions if configured
+    if let Some(ref instructions) = config.extra_instructions {
+        prompt.push_str("Additional requirements:\n");
+        prompt.push_str(instructions);
+        prompt.push_str("\n\n");
+    }
+
+    // Add the context
+    prompt.push_str(&format!(
+        r#"Files changed:
 {}
 
 Diff:
@@ -249,17 +503,20 @@ Diff:
 
 Commit message:"#,
         files, diff
-    )
+    ));
+
+    prompt
 }
 
 async fn stream_commit_message(
     client: &Client,
     api_key: &str,
     model: &str,
+    config: &Config,
     diff: &str,
     files: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let prompt = build_prompt(diff, files);
+    let prompt = build_prompt(config, diff, files);
 
     let request = ChatRequest {
         model: model.to_string(),
@@ -360,6 +617,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "[not set]"
                     }
                 );
+                println!("format: {}", config.format);
+                if let Some(ref template) = config.custom_template {
+                    println!("custom_template: {} chars", template.len());
+                }
+                if let Some(ref instructions) = config.extra_instructions {
+                    println!("extra_instructions: {}", instructions);
+                }
             }
             ConfigAction::AutoCommit { value } => {
                 config.auto_commit = value.parse().unwrap_or(false);
@@ -375,6 +639,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.api_key = Some(value);
                 save_config(&config)?;
                 println!("API key saved to config");
+            }
+            ConfigAction::Format { value } => {
+                config.format = value;
+                save_config(&config)?;
+                println!("format set to: {}", config.format);
+            }
+            ConfigAction::Template { value } => {
+                config.custom_template = Some(value);
+                save_config(&config)?;
+                println!("Custom template saved. Set format to 'custom' to use it:");
+                println!("  committer config format custom");
+            }
+            ConfigAction::Instructions { value } => {
+                if value.to_lowercase() == "clear" {
+                    config.extra_instructions = None;
+                    save_config(&config)?;
+                    println!("Extra instructions cleared");
+                } else {
+                    config.extra_instructions = Some(value);
+                    save_config(&config)?;
+                    println!("Extra instructions saved");
+                }
+            }
+            ConfigAction::Formats => {
+                println!("Available commit message formats:\n");
+                for format in [
+                    CommitFormat::Conventional,
+                    CommitFormat::Simple,
+                    CommitFormat::Gitmoji,
+                    CommitFormat::Detailed,
+                    CommitFormat::Imperative,
+                    CommitFormat::Custom,
+                ] {
+                    println!("━━━ {} ━━━", format.to_string().to_uppercase());
+                    let examples = format.get_examples();
+                    if !examples.is_empty() {
+                        println!("{}\n", examples);
+                    } else {
+                        println!("(User-defined template)\n");
+                    }
+                }
+                println!("Set format with: committer config format <name>");
+                println!("Override per-run: committer --format <name>");
             }
         }
         return Ok(());
@@ -414,13 +721,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Determine which model to use
     let model = cli.model.as_ref().unwrap_or(&config.model);
 
+    // Apply CLI format override
+    if let Some(format) = cli.format {
+        config.format = format;
+    }
+
+    // Apply CLI instructions (append to existing)
+    if let Some(ref cli_instructions) = cli.instructions {
+        config.extra_instructions = Some(match config.extra_instructions {
+            Some(existing) => format!("{}\n{}", existing, cli_instructions),
+            None => cli_instructions.clone(),
+        });
+    }
+
     // Create HTTP client
     let client = Client::builder()
         .build()?;
 
     // Stream the commit message
     eprint!("Generating commit message...");
-    let message = stream_commit_message(&client, &api_key, model, &diff, &files).await?;
+    let message = stream_commit_message(&client, &api_key, model, &config, &diff, &files).await?;
 
     if message.is_empty() {
         eprintln!("Error: Empty commit message generated");
