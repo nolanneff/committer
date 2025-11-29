@@ -1,0 +1,14 @@
+F:\Coding Storage\Projects - 2025\commiter\committer\target\debug\deps\serde-f350e3be7a3b5cbc.d: C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs F:\Coding\ Storage\Projects\ -\ 2025\commiter\committer\target\debug\build\serde-15a02bf4066364b5\out/private.rs
+
+F:\Coding Storage\Projects - 2025\commiter\committer\target\debug\deps\libserde-f350e3be7a3b5cbc.rlib: C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs F:\Coding\ Storage\Projects\ -\ 2025\commiter\committer\target\debug\build\serde-15a02bf4066364b5\out/private.rs
+
+F:\Coding Storage\Projects - 2025\commiter\committer\target\debug\deps\libserde-f350e3be7a3b5cbc.rmeta: C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs F:\Coding\ Storage\Projects\ -\ 2025\commiter\committer\target\debug\build\serde-15a02bf4066364b5\out/private.rs
+
+C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs:
+C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs:
+C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs:
+C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs:
+C:\Users\Nolan\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs:
+F:\Coding\ Storage\Projects\ -\ 2025\commiter\committer\target\debug\build\serde-15a02bf4066364b5\out/private.rs:
+
+# env-dep:OUT_DIR=F:\\Coding Storage\\Projects - 2025\\commiter\\committer\\target\\debug\\build\\serde-15a02bf4066364b5\\out
