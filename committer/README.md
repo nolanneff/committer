@@ -1,4 +1,4 @@
-# committer V0.10
+# committer V0.1.0
 
 A fast, AI-powered git commit message generator using OpenRouter.
 

@@ -1,0 +1,9 @@
+{
+    "version": "0.1.0",
+    "description": "Fast AI-powered git commit message generator",
+    "license": "MIT",
+    "url": "file:///F:/Coding%20Storage/Projects%20-%202025/commiter/committer/target/release.zip",
+    "hash": "219cf4cff582719621523f7b5d312355f72857fe18499063f22672e0f7f4aeb8",
+    "bin": "committer.exe",
+    "notes": "Set your OpenRouter API key: $env:OPENROUTER_API_KEY = 'sk-or-...'"
+}
