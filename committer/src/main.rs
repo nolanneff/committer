@@ -291,7 +291,7 @@ async fn stream_commit_message(
     // Print a newline before streaming starts
     println!();
 
-    while let Some(chunk_result) = stream.next().await {
+    'outer: while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
         let text = String::from_utf8_lossy(&chunk);
 
@@ -299,7 +299,7 @@ async fn stream_commit_message(
         for line in text.lines() {
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
-                    break;
+                    break 'outer;
                 }
 
                 if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
