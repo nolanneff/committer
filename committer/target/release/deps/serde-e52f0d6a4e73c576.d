@@ -1,0 +1,14 @@
+/mnt/shared/Coding Storage/Projects - 2025/commiter/committer/target/release/deps/serde-e52f0d6a4e73c576.d: /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/shared/Coding\ Storage/Projects\ -\ 2025/commiter/committer/target/release/build/serde-377fafe5b6ffca1b/out/private.rs
+
+/mnt/shared/Coding Storage/Projects - 2025/commiter/committer/target/release/deps/libserde-e52f0d6a4e73c576.rlib: /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/shared/Coding\ Storage/Projects\ -\ 2025/commiter/committer/target/release/build/serde-377fafe5b6ffca1b/out/private.rs
+
+/mnt/shared/Coding Storage/Projects - 2025/commiter/committer/target/release/deps/libserde-e52f0d6a4e73c576.rmeta: /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/shared/Coding\ Storage/Projects\ -\ 2025/commiter/committer/target/release/build/serde-377fafe5b6ffca1b/out/private.rs
+
+/home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/nolan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/mnt/shared/Coding\ Storage/Projects\ -\ 2025/commiter/committer/target/release/build/serde-377fafe5b6ffca1b/out/private.rs:
+
+# env-dep:OUT_DIR=/mnt/shared/Coding Storage/Projects - 2025/commiter/committer/target/release/build/serde-377fafe5b6ffca1b/out
