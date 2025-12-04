@@ -10,7 +10,7 @@ use tokio::process::Command;
 // Configuration
 // ============================================================================
 
-const DEFAULT_MODEL: &str = "x-ai/grok-4.1-fast:free";
+const DEFAULT_MODEL: &str = "google/gemini-2.0-flash-001";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,8 +19,6 @@ struct Config {
     auto_commit: bool,
     #[serde(default = "default_model")]
     model: String,
-    #[serde(default)]
-    api_key: Option<String>,
 }
 
 fn default_model() -> String {
@@ -32,7 +30,6 @@ impl Default for Config {
         Self {
             auto_commit: false,
             model: default_model(),
-            api_key: None,
         }
     }
 }
@@ -64,11 +61,8 @@ fn save_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_api_key(config: &Config) -> Option<String> {
-    // Environment variable takes precedence
-    std::env::var("OPENROUTER_API_KEY")
-        .ok()
-        .or_else(|| config.api_key.clone())
+fn get_api_key() -> Option<String> {
+    std::env::var("OPENROUTER_API_KEY").ok()
 }
 
 // ============================================================================
@@ -122,16 +116,15 @@ enum ConfigAction {
         /// Model identifier (e.g., x-ai/grok-4.1-fast:free)
         value: String,
     },
-    /// Set API key (stored in config file)
-    ApiKey {
-        /// OpenRouter API key
-        value: String,
-    },
 }
 
 // ============================================================================
 // Git Operations
 // ============================================================================
+
+// Maximum characters to send (roughly 100K tokens * 4 chars/token = 400K chars)
+// Leave headroom for prompt and response
+const MAX_DIFF_CHARS: usize = 300_000;
 
 async fn get_git_diff(staged_only: bool) -> Result<String, Box<dyn std::error::Error>> {
     let args = if staged_only {
@@ -150,7 +143,66 @@ async fn get_git_diff(staged_only: bool) -> Result<String, Box<dyn std::error::E
         return Err(format!("git diff failed: {}", stderr).into());
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let diff = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(truncate_diff(&diff))
+}
+
+/// Truncates a diff to fit within token limits while preserving useful context.
+/// Keeps the beginning (file headers, context) and end (recent changes).
+fn truncate_diff(diff: &str) -> String {
+    if diff.len() <= MAX_DIFF_CHARS {
+        return diff.to_string();
+    }
+
+    // Split into file chunks to truncate more intelligently
+    let mut chunks: Vec<&str> = diff.split("\ndiff --git ").collect();
+    
+    if chunks.is_empty() {
+        // Fallback: simple truncation with middle cut
+        let keep_each = MAX_DIFF_CHARS / 2;
+        let start = &diff[..keep_each];
+        let end = &diff[diff.len() - keep_each..];
+        return format!(
+            "{}\n\n[... {} characters truncated ...]\n\n{}",
+            start,
+            diff.len() - MAX_DIFF_CHARS,
+            end
+        );
+    }
+
+    // Reconstruct with "diff --git " prefix for all but first chunk
+    let first = chunks.remove(0);
+    let mut file_diffs: Vec<String> = vec![first.to_string()];
+    for chunk in chunks {
+        file_diffs.push(format!("diff --git {}", chunk));
+    }
+
+    // Try to fit as many complete file diffs as possible
+    let mut result = String::new();
+    let mut total_len = 0;
+    let mut included = 0;
+
+    for file_diff in &file_diffs {
+        let chunk_len = file_diff.len();
+        // Reserve space for truncation notice
+        if total_len + chunk_len + 200 > MAX_DIFF_CHARS {
+            break;
+        }
+        result.push_str(file_diff);
+        result.push('\n');
+        total_len += chunk_len + 1;
+        included += 1;
+    }
+
+    if included < file_diffs.len() {
+        result.push_str(&format!(
+            "\n[... diff truncated: showing {}/{} files to fit context limit ...]\n",
+            included,
+            file_diffs.len()
+        ));
+    }
+
+    result
 }
 
 async fn get_staged_files() -> Result<String, Box<dyn std::error::Error>> {
@@ -352,9 +404,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("model: {}", config.model);
                 println!(
                     "api_key: {}",
-                    if config.api_key.is_some() {
-                        "[set in config]"
-                    } else if std::env::var("OPENROUTER_API_KEY").is_ok() {
+                    if std::env::var("OPENROUTER_API_KEY").is_ok() {
                         "[set via OPENROUTER_API_KEY env var]"
                     } else {
                         "[not set]"
@@ -371,22 +421,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 save_config(&config)?;
                 println!("model set to: {}", config.model);
             }
-            ConfigAction::ApiKey { value } => {
-                config.api_key = Some(value);
-                save_config(&config)?;
-                println!("API key saved to config");
-            }
         }
         return Ok(());
     }
 
     // Get API key
-    let api_key = match get_api_key(&config) {
+    let api_key = match get_api_key() {
         Some(key) => key,
         None => {
             eprintln!("Error: No API key found.");
-            eprintln!("Set OPENROUTER_API_KEY environment variable or run:");
-            eprintln!("  committer config api-key YOUR_API_KEY");
+            eprintln!("Set the OPENROUTER_API_KEY environment variable:\n");
+            eprintln!("  Linux/macOS (bash/zsh):");
+            eprintln!("    export OPENROUTER_API_KEY=\"your-api-key\"");
+            eprintln!("    # Add to ~/.bashrc or ~/.zshrc to persist\n");
+            eprintln!("  Windows (PowerShell):");
+            eprintln!("    $env:OPENROUTER_API_KEY = \"your-api-key\"");
+            eprintln!("    # Or set permanently via System Properties > Environment Variables\n");
+            eprintln!("  Windows (Command Prompt):");
+            eprintln!("    set OPENROUTER_API_KEY=your-api-key");
             std::process::exit(1);
         }
     };
