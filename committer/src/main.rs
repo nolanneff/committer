@@ -285,10 +285,10 @@ fn build_prompt(diff: &str, files: &str) -> String {
         r#"Generate a concise git commit message for the following changes.
 
 Rules:
-- Use conventional commit format: type(scope): description
-- Types: feat, fix, docs, style, refactor, perf, test, chore
+- Use conventional commit format: TYPE(scope): description
+- Types must be UPPERCASE: FEAT, FIX, DOCS, STYLE, REFACTOR, PERF, TEST, CHORE
 - Keep the first line under 72 characters
-- Optionally add bullet points for significant changes
+- Optionally add bullet points using '-' for significant changes
 - Be specific about what changed, not why
 - No quotes around the message
 
@@ -357,8 +357,12 @@ async fn stream_commit_message(
                     for choice in parsed.choices {
                         if let Some(content) = choice.delta.content {
                             if first_chunk {
+                                spinner.set_style(
+                                    ProgressStyle::default_spinner()
+                                        .template("Generating commit message [x]")
+                                        .unwrap()
+                                );
                                 spinner.finish_and_clear();
-                                println!();
                                 first_chunk = false;
                             }
                             print!("{}", content);
@@ -381,7 +385,7 @@ async fn stream_commit_message(
 // ============================================================================
 
 fn prompt_yes_no(prompt: &str) -> bool {
-    print!("— {} [y/N] ", prompt);
+    print!("{} [y/N] ", prompt);
     io::stdout().flush().unwrap();
 
     let mut input = String::new();
@@ -483,10 +487,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
-            .template("— {spinner} Generating commit message")
+            .tick_strings(&[
+                "⠋",
+                "⠙",
+                "⠹",
+                "⠸",
+                "⠼",
+                "⠴",
+                "⠦",
+                "⠧",
+                "⠇",
+                "⠏",
+            ])
+            .template("Generating commit message {spinner}")
             .unwrap()
     );
-    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+    spinner.enable_steady_tick(std::time::Duration::from_millis(120));
 
     let message = stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await?;
 
