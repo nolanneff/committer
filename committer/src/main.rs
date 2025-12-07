@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use console::Term;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -504,7 +505,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     spinner.enable_steady_tick(std::time::Duration::from_millis(120));
 
-    let message = stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await?;
+    // Hide cursor while spinner is active
+    let term = Term::stdout();
+    let _ = term.hide_cursor();
+
+    let message_result = stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await;
+
+    // Show cursor again
+    let _ = term.show_cursor();
+
+    let message = message_result?;
 
     if message.is_empty() {
         spinner.finish_and_clear();
