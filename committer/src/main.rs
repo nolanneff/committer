@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
@@ -230,8 +231,6 @@ async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Error>>
         return Err(format!("git commit failed: {}", stderr).into());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    println!("\n{}", stdout);
     Ok(())
 }
 
@@ -310,6 +309,7 @@ async fn stream_commit_message(
     model: &str,
     diff: &str,
     files: &str,
+    spinner: &ProgressBar,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let prompt = build_prompt(diff, files);
 
@@ -333,15 +333,14 @@ async fn stream_commit_message(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("OpenRouter API error ({}): {}", status, body).into());
+        spinner.finish_and_clear();
+        return Err(format!("API error ({}): {}", status, body).into());
     }
 
     let mut stream = response.bytes_stream();
     let mut full_message = String::new();
     let mut stdout = io::stdout();
-
-    // Print a newline before streaming starts
-    println!();
+    let mut first_chunk = true;
 
     'outer: while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
@@ -357,6 +356,11 @@ async fn stream_commit_message(
                 if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
                     for choice in parsed.choices {
                         if let Some(content) = choice.delta.content {
+                            if first_chunk {
+                                spinner.finish_and_clear();
+                                println!();
+                                first_chunk = false;
+                            }
                             print!("{}", content);
                             stdout.flush()?;
                             full_message.push_str(&content);
@@ -377,7 +381,7 @@ async fn stream_commit_message(
 // ============================================================================
 
 fn prompt_yes_no(prompt: &str) -> bool {
-    print!("{} [y/N] ", prompt);
+    print!("— {} [y/N] ", prompt);
     io::stdout().flush().unwrap();
 
     let mut input = String::new();
@@ -429,16 +433,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = match get_api_key() {
         Some(key) => key,
         None => {
-            eprintln!("Error: No API key found.");
-            eprintln!("Set the OPENROUTER_API_KEY environment variable:\n");
-            eprintln!("  Linux/macOS (bash/zsh):");
-            eprintln!("    export OPENROUTER_API_KEY=\"your-api-key\"");
-            eprintln!("    # Add to ~/.bashrc or ~/.zshrc to persist\n");
-            eprintln!("  Windows (PowerShell):");
-            eprintln!("    $env:OPENROUTER_API_KEY = \"your-api-key\"");
-            eprintln!("    # Or set permanently via System Properties > Environment Variables\n");
-            eprintln!("  Windows (Command Prompt):");
-            eprintln!("    set OPENROUTER_API_KEY=your-api-key");
+            println!("— No API key found");
+            println!("  Set OPENROUTER_API_KEY environment variable");
             std::process::exit(1);
         }
     };
@@ -458,9 +454,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let files = files_result?;
 
     if diff.trim().is_empty() {
-        eprintln!("No staged changes found.");
-        eprintln!("Stage your changes with 'git add' or use 'committer --all'");
-        std::process::exit(1);
+        // Check if there are any unstaged or untracked changes
+        let status_output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .output()
+            .await?;
+
+        let status = String::from_utf8_lossy(&status_output.stdout);
+
+        if status.trim().is_empty() {
+            println!("— Nothing to commit");
+            std::process::exit(0);
+        } else {
+            println!("— No staged changes");
+            println!("  Use 'git add' or --all");
+            std::process::exit(1);
+        }
     }
 
     // Determine which model to use
@@ -470,12 +479,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder()
         .build()?;
 
-    // Stream the commit message
-    eprint!("Generating commit message...");
-    let message = stream_commit_message(&client, &api_key, model, &diff, &files).await?;
+    // Stream the commit message with spinner
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("— {spinner} Generating commit message")
+            .unwrap()
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let message = stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await?;
 
     if message.is_empty() {
-        eprintln!("Error: Empty commit message generated");
+        spinner.finish_and_clear();
+        println!("— Error: empty commit message generated");
         std::process::exit(1);
     }
 
@@ -485,12 +502,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let should_commit = cli.yes || config.auto_commit || prompt_yes_no("\nCommit with this message?");
+    let should_commit = cli.yes || config.auto_commit || prompt_yes_no("Commit?");
 
     if should_commit {
         run_git_commit(&message).await?;
+        println!("— Committed");
     } else {
-        println!("\nCommit cancelled.");
+        println!("— Cancelled");
     }
 
     Ok(())
