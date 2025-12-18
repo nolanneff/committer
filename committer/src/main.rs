@@ -93,6 +93,10 @@ struct Cli {
     /// Override model for this run
     #[arg(short, long)]
     model: Option<String>,
+
+    /// Auto-create branch if commit doesn't match current branch
+    #[arg(short = 'b', long)]
+    auto_branch: bool,
 }
 
 #[derive(Subcommand)]
@@ -249,6 +253,34 @@ async fn stage_all_changes() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn get_current_branch() -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git rev-parse failed: {}", stderr).into());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+async fn create_and_switch_branch(branch_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", branch_name])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git checkout -b failed: {}", stderr).into());
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // OpenRouter API
 // ============================================================================
@@ -379,6 +411,96 @@ async fn stream_commit_message(
     println!(); // Newline after streaming completes
 
     Ok(full_message.trim().to_string())
+}
+
+#[derive(Deserialize)]
+struct BranchSuggestion {
+    matches: bool,
+    branch_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NonStreamChoice {
+    message: NonStreamMessage,
+}
+
+#[derive(Deserialize)]
+struct NonStreamMessage {
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct NonStreamResponse {
+    choices: Vec<NonStreamChoice>,
+}
+
+async fn check_branch_match(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    commit_message: &str,
+    current_branch: &str,
+) -> Result<BranchSuggestion, Box<dyn std::error::Error>> {
+    let prompt = format!(
+        r#"You are a git branch analyzer. Given a commit message and current branch name, determine if they match semantically.
+
+Current branch: {current_branch}
+Commit message: {commit_message}
+
+Rules:
+1. If on "main", "master", "develop", or "dev" - they NEVER match (always need a feature branch)
+2. Otherwise, check if the commit type and general topic align with the branch name
+3. For example: branch "feat/user-auth" matches commit "FEAT(auth): add login validation"
+4. But: branch "refactor/ui" does NOT match commit "FEAT(api): add new endpoint"
+
+If they don't match, suggest a new branch name in format: type/short-description
+- type should be lowercase: feat, fix, refactor, docs, style, perf, test, chore
+- description should be lowercase, hyphen-separated, 2-4 words max
+
+Respond with ONLY valid JSON (no markdown, no explanation):
+{{"matches": true}} or {{"matches": false, "branch_name": "feat/example-name"}}"#
+    );
+
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: prompt,
+        }],
+        stream: false,
+    };
+
+    let response = client
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("API error ({}): {}", status, body).into());
+    }
+
+    let response_body: NonStreamResponse = response.json().await?;
+    let content = response_body
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    let content = content.trim();
+    let content = content.strip_prefix("```json").unwrap_or(content);
+    let content = content.strip_prefix("```").unwrap_or(content);
+    let content = content.strip_suffix("```").unwrap_or(content);
+    let content = content.trim();
+
+    let suggestion: BranchSuggestion = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse branch suggestion: {} - raw: {}", e, content))?;
+
+    Ok(suggestion)
 }
 
 // ============================================================================
@@ -522,9 +644,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // Handle auto-branch logic
+    if cli.auto_branch {
+        let current_branch = get_current_branch().await?;
+        
+        let branch_spinner = ProgressBar::new_spinner();
+        branch_spinner.set_style(
+            ProgressStyle::default_spinner()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                .template("Checking branch match {spinner}")
+                .unwrap()
+        );
+        branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+        
+        let suggestion = check_branch_match(&client, &api_key, model, &message, &current_branch).await?;
+        branch_spinner.finish_and_clear();
+        
+        if !suggestion.matches {
+            if let Some(new_branch) = suggestion.branch_name {
+                println!("— Branch '{}' doesn't match commit, creating '{}'", current_branch, new_branch);
+                create_and_switch_branch(&new_branch).await?;
+                println!("— Switched to branch '{}'", new_branch);
+            }
+        }
+    }
+
     // Handle commit logic
     if cli.dry_run {
-        // Don't commit, just exit
         return Ok(());
     }
 
