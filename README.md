@@ -2,7 +2,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/your-repo/committer)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 
 A fast, AI-powered git commit message generator using OpenRouter.
 
@@ -153,7 +153,7 @@ committer --model your-preferred-model
 
 ## Requirements
 
-- Rust 1.56+ (2021 edition)
+- Rust (stable)
 - Git
 - OpenRouter API key ([get one here](https://openrouter.ai))
 
