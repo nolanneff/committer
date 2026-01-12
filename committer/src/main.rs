@@ -840,6 +840,8 @@ enum CommitAction {
 }
 
 fn prompt_commit(message: &str) -> CommitAction {
+    let mut current_message = message.to_string();
+
     loop {
         print!("Commit? [y/n/e] ");
         io::stdout().flush().unwrap();
@@ -848,15 +850,17 @@ fn prompt_commit(message: &str) -> CommitAction {
         io::stdin().read_line(&mut input).unwrap();
 
         match input.trim().to_lowercase().as_str() {
-            "y" | "yes" => return CommitAction::Commit(message.to_string()),
+            "y" | "yes" => return CommitAction::Commit(current_message),
             "n" | "no" => return CommitAction::Cancel,
             "e" | "edit" => {
                 let edited: String = dialoguer::Editor::new()
                     .extension(".txt")
-                    .edit(message)
+                    .edit(&current_message)
                     .unwrap_or(None)
-                    .unwrap_or_else(|| message.to_string());
-                return CommitAction::Commit(edited);
+                    .unwrap_or_else(|| current_message.clone());
+                current_message = edited;
+                println!();
+                println!("{}", current_message);
             }
             _ => println!("Please enter y, n, or e"),
         }
