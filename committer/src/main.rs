@@ -15,12 +15,38 @@ use tokio::process::Command;
 const DEFAULT_MODEL: &str = "google/gemini-2.0-flash-001";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+const EXCLUDED_FROM_DIFF: &[&str] = &[
+    // Lock files
+    "Cargo.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "composer.lock",
+    "Gemfile.lock",
+    "poetry.lock",
+    "bun.lockb",
+    "uv.lock",
+    // Minified/generated
+    ".min.js",
+    ".min.css",
+    ".map",
+    // Build directories (safety net if staged)
+    "target/",
+    "node_modules/",
+    "dist/",
+    "build/",
+    ".next/",
+    "__pycache__/",
+];
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
     #[serde(default)]
     auto_commit: bool,
     #[serde(default = "default_model")]
     model: String,
+    #[serde(default)]
+    verbose: bool,
 }
 
 fn default_model() -> String {
@@ -32,6 +58,7 @@ impl Default for Config {
         Self {
             auto_commit: false,
             model: default_model(),
+            verbose: false,
         }
     }
 }
@@ -97,6 +124,10 @@ struct Cli {
     /// Auto-create branch if commit doesn't match current branch
     #[arg(short = 'b', long)]
     auto_branch: bool,
+
+    /// Show detailed operation logs (excluded files, truncation, etc.)
+    #[arg(short = 'v', long)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
@@ -122,6 +153,11 @@ enum ConfigAction {
         /// Model identifier (e.g., x-ai/grok-4.1-fast:free)
         value: String,
     },
+    /// Enable verbose operation logs by default
+    Verbose {
+        /// true or false
+        value: String,
+    },
 }
 
 // ============================================================================
@@ -132,17 +168,90 @@ enum ConfigAction {
 // Leave headroom for prompt and response
 const MAX_DIFF_CHARS: usize = 300_000;
 
-async fn get_git_diff(staged_only: bool) -> Result<String, Box<dyn std::error::Error>> {
+fn should_exclude_from_diff(filename: &str) -> bool {
+    EXCLUDED_FROM_DIFF.iter().any(|pattern| {
+        if pattern.ends_with('/') {
+            // Directory pattern - check if file is inside this directory
+            let dir_name = pattern.trim_end_matches('/');
+            filename.contains(&format!("/{}/", dir_name))
+                || filename.starts_with(&format!("{}/", dir_name))
+        } else if pattern.starts_with('.') {
+            // Extension pattern
+            filename.ends_with(pattern)
+        } else {
+            // Exact filename match
+            filename.ends_with(pattern) || filename.ends_with(&format!("/{}", pattern))
+        }
+    })
+}
+
+fn extract_filename_from_diff_header(header: &str) -> Option<&str> {
+    header
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("diff --git a/"))
+        .and_then(|rest| rest.split(" b/").next())
+}
+
+fn filter_excluded_diffs(diff: &str, verbose: bool) -> String {
+    if diff.is_empty() {
+        return diff.to_string();
+    }
+
+    let mut chunks: Vec<&str> = diff.split("\ndiff --git ").collect();
+    if chunks.is_empty() {
+        return diff.to_string();
+    }
+
+    let first = chunks.remove(0);
+    let mut file_diffs: Vec<String> = vec![];
+    let mut excluded_files: Vec<String> = vec![];
+
+    if !first.is_empty() {
+        if let Some(filename) = extract_filename_from_diff_header(&format!("diff --git {}", first))
+        {
+            if should_exclude_from_diff(filename) {
+                excluded_files.push(filename.to_string());
+            } else {
+                file_diffs.push(first.to_string());
+            }
+        } else {
+            file_diffs.push(first.to_string());
+        }
+    }
+
+    for chunk in chunks {
+        let full_header = format!("diff --git {}", chunk);
+        if let Some(filename) = extract_filename_from_diff_header(&full_header) {
+            if should_exclude_from_diff(filename) {
+                excluded_files.push(filename.to_string());
+            } else {
+                file_diffs.push(format!("\ndiff --git {}", chunk));
+            }
+        }
+    }
+
+    if verbose && !excluded_files.is_empty() {
+        eprintln!("— Excluded from diff ({} files):", excluded_files.len());
+        for file in &excluded_files {
+            eprintln!("    {}", file);
+        }
+    }
+
+    file_diffs.join("")
+}
+
+async fn get_git_diff(
+    staged_only: bool,
+    verbose: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     let args = if staged_only {
         vec!["diff", "--staged"]
     } else {
         vec!["diff", "HEAD"]
     };
 
-    let output = Command::new("git")
-        .args(&args)
-        .output()
-        .await?;
+    let output = Command::new("git").args(&args).output().await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -150,24 +259,31 @@ async fn get_git_diff(staged_only: bool) -> Result<String, Box<dyn std::error::E
     }
 
     let diff = String::from_utf8_lossy(&output.stdout).to_string();
-    Ok(truncate_diff(&diff))
+    let filtered_diff = filter_excluded_diffs(&diff, verbose);
+    Ok(truncate_diff(&filtered_diff, verbose))
 }
 
 /// Truncates a diff to fit within token limits while preserving useful context.
 /// Keeps the beginning (file headers, context) and end (recent changes).
-fn truncate_diff(diff: &str) -> String {
+fn truncate_diff(diff: &str, verbose: bool) -> String {
     if diff.len() <= MAX_DIFF_CHARS {
         return diff.to_string();
     }
 
     // Split into file chunks to truncate more intelligently
     let mut chunks: Vec<&str> = diff.split("\ndiff --git ").collect();
-    
+
     if chunks.is_empty() {
         // Fallback: simple truncation with middle cut
         let keep_each = MAX_DIFF_CHARS / 2;
         let start = &diff[..keep_each];
         let end = &diff[diff.len() - keep_each..];
+        if verbose {
+            eprintln!(
+                "— Diff truncated: {} chars removed (fallback mode)",
+                diff.len() - MAX_DIFF_CHARS
+            );
+        }
         return format!(
             "{}\n\n[... {} characters truncated ...]\n\n{}",
             start,
@@ -201,6 +317,14 @@ fn truncate_diff(diff: &str) -> String {
     }
 
     if included < file_diffs.len() {
+        if verbose {
+            eprintln!(
+                "— Diff truncated: showing {}/{} files ({} KB limit)",
+                included,
+                file_diffs.len(),
+                MAX_DIFF_CHARS / 1024
+            );
+        }
         result.push_str(&format!(
             "\n[... diff truncated: showing {}/{} files to fit context limit ...]\n",
             included,
@@ -211,7 +335,7 @@ fn truncate_diff(diff: &str) -> String {
     result
 }
 
-async fn get_staged_files() -> Result<String, Box<dyn std::error::Error>> {
+async fn get_staged_files(verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", "--staged", "--name-status"])
         .output()
@@ -222,7 +346,36 @@ async fn get_staged_files() -> Result<String, Box<dyn std::error::Error>> {
         return Err(format!("git diff --name-status failed: {}", stderr).into());
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut excluded_count = 0;
+
+    let annotated: Vec<String> = raw_output
+        .lines()
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '\t').collect();
+            if parts.len() == 2 {
+                let filename = parts[1];
+                if should_exclude_from_diff(filename) {
+                    excluded_count += 1;
+                    format!("{}\t{} [excluded from diff]", parts[0], filename)
+                } else {
+                    line.to_string()
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+
+    if verbose {
+        let total = annotated.len();
+        eprintln!(
+            "— Staged files: {} total, {} excluded from diff",
+            total, excluded_count
+        );
+    }
+
+    Ok(annotated.join("\n"))
 }
 
 async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -240,10 +393,7 @@ async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Error>>
 }
 
 async fn stage_all_changes() -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("git")
-        .args(["add", "-A"])
-        .output()
-        .await?;
+    let output = Command::new("git").args(["add", "-A"]).output().await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -315,24 +465,53 @@ struct Delta {
 
 fn build_prompt(diff: &str, files: &str) -> String {
     format!(
-        r#"Generate a concise git commit message for the following changes.
+        r#"Generate a git commit message for the following changes.
 
-Rules:
-- Use conventional commit format: TYPE(scope): description
-- Types must be UPPERCASE: FEAT, FIX, DOCS, STYLE, REFACTOR, PERF, TEST, CHORE
-- Keep the first line under 72 characters
-- Optionally add bullet points using '-' for significant changes
-- Be specific about what changed, not why
+CRITICAL: You MUST mention ALL changed files. Do not skip or summarize any changes.
+
+FORMAT: type(scope): description
+
+TYPES (use lowercase):
+  Core changes:
+    feat     - new user-facing functionality
+    fix      - bug fix / behavior correction
+    refactor - code restructure, no behavior change
+    perf     - performance improvements
+    style    - formatting only (whitespace, lint fixes)
+  
+  Project hygiene:
+    docs     - documentation only
+    test     - add/update tests
+    chore    - routine maintenance, housekeeping
+    build    - build system / packaging changes
+    ci       - CI pipeline / workflow changes
+  
+  Structural:
+    deps     - dependency changes
+    config   - config changes (env, feature flags)
+    security - security hardening, vulnerability fixes
+    revert   - revert a previous commit
+
+SCOPE: Short identifier for affected area (api, auth, ui, db, cli, core, config, deps).
+       Omit only if change is truly global.
+
+RULES:
+- First line: type(scope): brief description (under 72 chars)
+- For multiple changes, ALWAYS add bullet points after a blank line
+- Each bullet describes WHAT the change does semantically, not which file changed
+- Focus on behavior and functionality, not file operations
+- Keep bullet descriptions concise (5-10 words each)
 - No quotes around the message
 
 Files changed:
-{}
+{files}
 
 Diff:
-{}
+{diff}
 
 Commit message:"#,
-        files, diff
+        files = files,
+        diff = diff
     )
 }
 
@@ -393,7 +572,7 @@ async fn stream_commit_message(
                                 spinner.set_style(
                                     ProgressStyle::default_spinner()
                                         .template("Generating commit message [x]")
-                                        .unwrap()
+                                        .unwrap(),
                                 );
                                 spinner.finish_and_clear();
                                 first_chunk = false;
@@ -497,8 +676,12 @@ Respond with ONLY valid JSON (no markdown, no explanation):
     let content = content.strip_suffix("```").unwrap_or(content);
     let content = content.trim();
 
-    let suggestion: BranchSuggestion = serde_json::from_str(content)
-        .map_err(|e| format!("Failed to parse branch suggestion: {} - raw: {}", e, content))?;
+    let suggestion: BranchSuggestion = serde_json::from_str(content).map_err(|e| {
+        format!(
+            "Failed to parse branch suggestion: {} - raw: {}",
+            e, content
+        )
+    })?;
 
     Ok(suggestion)
 }
@@ -533,6 +716,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Config file: {}", config_path().display());
                 println!("auto_commit: {}", config.auto_commit);
                 println!("model: {}", config.model);
+                println!("verbose: {}", config.verbose);
                 println!(
                     "api_key: {}",
                     if std::env::var("OPENROUTER_API_KEY").is_ok() {
@@ -551,6 +735,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.model = value;
                 save_config(&config)?;
                 println!("model set to: {}", config.model);
+            }
+            ConfigAction::Verbose { value } => {
+                config.verbose = value.parse().unwrap_or(false);
+                save_config(&config)?;
+                println!("verbose set to: {}", config.verbose);
             }
         }
         return Ok(());
@@ -571,11 +760,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stage_all_changes().await?;
     }
 
+    // Determine verbose mode (CLI flag overrides config)
+    let verbose = cli.verbose || config.verbose;
+
     // Get diff and file list in parallel
-    let (diff_result, files_result) = tokio::join!(
-        get_git_diff(true),
-        get_staged_files()
-    );
+    let (diff_result, files_result) =
+        tokio::join!(get_git_diff(true, verbose), get_staged_files(verbose));
 
     let diff = diff_result?;
     let files = files_result?;
@@ -603,27 +793,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = cli.model.as_ref().unwrap_or(&config.model);
 
     // Create HTTP client
-    let client = Client::builder()
-        .build()?;
+    let client = Client::builder().build()?;
 
     // Stream the commit message with spinner
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
-            .tick_strings(&[
-                "⠋",
-                "⠙",
-                "⠹",
-                "⠸",
-                "⠼",
-                "⠴",
-                "⠦",
-                "⠧",
-                "⠇",
-                "⠏",
-            ])
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
             .template("Generating commit message {spinner}")
-            .unwrap()
+            .unwrap(),
     );
     spinner.enable_steady_tick(std::time::Duration::from_millis(120));
 
@@ -631,7 +809,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let term = Term::stdout();
     let _ = term.hide_cursor();
 
-    let message_result = stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await;
+    let message_result =
+        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await;
 
     // Show cursor again
     let _ = term.show_cursor();
@@ -647,22 +826,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle auto-branch logic
     if cli.auto_branch {
         let current_branch = get_current_branch().await?;
-        
+
         let branch_spinner = ProgressBar::new_spinner();
         branch_spinner.set_style(
             ProgressStyle::default_spinner()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
                 .template("Checking branch match {spinner}")
-                .unwrap()
+                .unwrap(),
         );
         branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
-        
-        let suggestion = check_branch_match(&client, &api_key, model, &message, &current_branch).await?;
+
+        let suggestion =
+            check_branch_match(&client, &api_key, model, &message, &current_branch).await?;
         branch_spinner.finish_and_clear();
-        
+
         if !suggestion.matches {
             if let Some(new_branch) = suggestion.branch_name {
-                println!("— Branch '{}' doesn't match commit, creating '{}'", current_branch, new_branch);
+                println!(
+                    "— Branch '{}' doesn't match commit, creating '{}'",
+                    current_branch, new_branch
+                );
                 create_and_switch_branch(&new_branch).await?;
                 println!("— Switched to branch '{}'", new_branch);
             }
