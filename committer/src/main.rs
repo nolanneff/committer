@@ -552,6 +552,8 @@ fn prompt_branch_action(current: &str, suggested: &str, reason: &str) -> BranchA
     println!("  Reason: {}", reason);
     println!();
 
+    let mut current_suggestion = suggested.to_string();
+
     loop {
         print!("Create branch? [y/n/e] ");
         io::stdout().flush().unwrap();
@@ -560,15 +562,16 @@ fn prompt_branch_action(current: &str, suggested: &str, reason: &str) -> BranchA
         io::stdin().read_line(&mut input).unwrap();
 
         match input.trim().to_lowercase().as_str() {
-            "y" | "yes" => return BranchAction::Create(suggested.to_string()),
+            "y" | "yes" => return BranchAction::Create(current_suggestion),
             "n" | "no" => return BranchAction::Skip,
             "e" | "edit" => {
                 let edited: String = Input::new()
                     .with_prompt("Branch name")
-                    .default(suggested.to_string())
+                    .default(current_suggestion.clone())
                     .interact_text()
                     .unwrap();
-                return BranchAction::Create(edited);
+                current_suggestion = edited;
+                println!("  Branch: {}", current_suggestion);
             }
             _ => println!("Please enter y, n, or e"),
         }
