@@ -684,6 +684,8 @@ async fn stream_commit_message(
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
+        .header("X-Title", "committer")
+        .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
         .json(&request)
         .send()
         .await?;
@@ -804,6 +806,8 @@ Respond with ONLY valid JSON:
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
+        .header("X-Title", "committer")
+        .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
         .json(&request)
         .send()
         .await?;
