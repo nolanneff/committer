@@ -437,16 +437,22 @@ async fn create_and_switch_branch(branch_name: &str) -> Result<(), Box<dyn std::
     Ok(())
 }
 
+async fn get_recent_commits(limit: usize) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["log", "--oneline", &format!("-{}", limit), "--format=%s"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Ok(String::new());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 // ============================================================================
 // Branch Analysis
 // ============================================================================
-
-const PROTECTED_BRANCHES: &[&str] = &["main", "master", "develop", "dev", "staging", "production"];
-
-const COMMIT_TYPES: &[&str] = &[
-    "feat", "fix", "refactor", "perf", "style", "docs", "test", "chore", "build", "ci", "deps",
-    "config", "security", "revert", "hotfix", "release",
-];
 
 const FILLER_WORDS: &[&str] = &[
     "add",
@@ -482,43 +488,16 @@ const FILLER_WORDS: &[&str] = &[
     "or",
 ];
 
-struct ParsedCommit {
-    commit_type: String,
-    scope: Option<String>,
-    description: String,
-}
-
-struct BranchCheck {
+#[derive(Deserialize)]
+struct BranchAnalysis {
     matches: bool,
     reason: String,
-    suggested_branch: String,
+    suggested_branch: Option<String>,
 }
 
 enum BranchAction {
     Create(String),
     Skip,
-}
-
-fn parse_commit_message(message: &str) -> Option<ParsedCommit> {
-    let first_line = message.lines().next()?;
-
-    // Pattern: type(scope): description  OR  type: description
-    let re = Regex::new(r"^([a-z]+)(?:\(([^)]+)\))?:\s*(.+)$").ok()?;
-    let caps = re.captures(first_line)?;
-
-    let commit_type = caps.get(1)?.as_str().to_string();
-    let scope = caps.get(2).map(|m| m.as_str().to_string());
-    let description = caps.get(3)?.as_str().to_string();
-
-    if !COMMIT_TYPES.contains(&commit_type.as_str()) {
-        return None;
-    }
-
-    Some(ParsedCommit {
-        commit_type,
-        scope,
-        description,
-    })
 }
 
 fn slugify(text: &str, max_words: usize) -> String {
@@ -546,79 +525,27 @@ fn slugify(text: &str, max_words: usize) -> String {
         .collect()
 }
 
-fn generate_branch_name(parsed: &ParsedCommit) -> String {
-    let desc_slug = slugify(&parsed.description, 3);
+fn generate_fallback_branch(commit_message: &str) -> String {
+    let first_line = commit_message.lines().next().unwrap_or(commit_message);
 
-    match &parsed.scope {
-        Some(scope) => format!("{}/{}-{}", parsed.commit_type, scope, desc_slug),
-        None => format!("{}/{}", parsed.commit_type, desc_slug),
-    }
-}
+    let re = Regex::new(r"^([a-z]+)(?:\(([^)]+)\))?:\s*(.+)$").unwrap();
+    if let Some(caps) = re.captures(first_line) {
+        let commit_type = caps.get(1).map(|m| m.as_str()).unwrap_or("feat");
+        let scope = caps.get(2).map(|m| m.as_str());
+        let description = caps.get(3).map(|m| m.as_str()).unwrap_or("changes");
 
-fn extract_branch_type(branch: &str) -> Option<&str> {
-    let type_part = branch.split('/').next()?;
-    if COMMIT_TYPES.contains(&type_part) {
-        Some(type_part)
+        let desc_slug = slugify(description, 3);
+        match scope {
+            Some(s) => format!("{}/{}-{}", commit_type, s, desc_slug),
+            None => format!("{}/{}", commit_type, desc_slug),
+        }
     } else {
-        None
-    }
-}
-
-fn extract_branch_scope(branch: &str) -> Option<String> {
-    branch
-        .split('/')
-        .nth(1)
-        .and_then(|rest| rest.split('-').next().map(|s| s.to_string()))
-}
-
-fn check_branch_alignment(current_branch: &str, parsed: &ParsedCommit) -> BranchCheck {
-    let suggested = generate_branch_name(parsed);
-
-    if PROTECTED_BRANCHES.contains(&current_branch) {
-        return BranchCheck {
-            matches: false,
-            reason: format!("'{}' is a protected branch", current_branch),
-            suggested_branch: suggested,
-        };
-    }
-
-    if let Some(branch_type) = extract_branch_type(current_branch) {
-        if branch_type != parsed.commit_type {
-            return BranchCheck {
-                matches: false,
-                reason: format!(
-                    "branch type '{}' doesn't match commit type '{}'",
-                    branch_type, parsed.commit_type
-                ),
-                suggested_branch: suggested,
-            };
-        }
-
-        if let Some(branch_scope) = extract_branch_scope(current_branch) {
-            if let Some(commit_scope) = &parsed.scope {
-                if branch_scope != *commit_scope {
-                    return BranchCheck {
-                        matches: false,
-                        reason: format!(
-                            "branch scope '{}' doesn't match commit scope '{}'",
-                            branch_scope, commit_scope
-                        ),
-                        suggested_branch: suggested,
-                    };
-                }
-            }
-        }
-    }
-
-    BranchCheck {
-        matches: true,
-        reason: String::new(),
-        suggested_branch: String::new(),
+        let slug = slugify(first_line, 3);
+        format!("feat/{}", slug)
     }
 }
 
 fn prompt_branch_action(current: &str, suggested: &str, reason: &str) -> BranchAction {
-    println!();
     println!("⚠ Branch mismatch detected");
     println!("  Current: {}", current);
     println!("  Suggested: {}", suggested);
@@ -684,8 +611,6 @@ fn build_prompt(diff: &str, files: &str) -> String {
     format!(
         r#"Generate a git commit message for the following changes.
 
-CRITICAL: You MUST mention ALL changed files. Do not skip or summarize any changes.
-
 FORMAT: type(scope): description
 
 TYPES (use lowercase):
@@ -714,11 +639,12 @@ SCOPE: Short identifier for affected area (api, auth, ui, db, cli, core, config,
 
 RULES:
 - First line: type(scope): brief description (under 72 chars)
-- For multiple changes, ALWAYS add bullet points after a blank line
-- Each bullet describes WHAT the change does semantically, not which file changed
-- Focus on behavior and functionality, not file operations
-- Keep bullet descriptions concise (5-10 words each)
-- No quotes around the message
+- For multiple changes, add bullet points (using "-") after a blank line
+- Each bullet describes WHAT the change does semantically
+- Focus on behavior and functionality, not file names
+- Keep bullets concise (5-10 words each)
+- Use "-" for bullets, NOT "*"
+- Do NOT include raw file paths or status codes (like "M file.rs") in output
 
 Files changed:
 {files}
@@ -804,23 +730,137 @@ async fn stream_commit_message(
         }
     }
 
-    println!(); // Newline after streaming completes
+    println!();
 
     Ok(full_message.trim().to_string())
+}
+
+#[derive(Deserialize)]
+struct NonStreamChoice {
+    message: NonStreamMessage,
+}
+
+#[derive(Deserialize)]
+struct NonStreamMessage {
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct NonStreamResponse {
+    choices: Vec<NonStreamChoice>,
+}
+
+async fn analyze_branch_alignment(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    current_branch: &str,
+    commit_message: &str,
+    files_changed: &str,
+    recent_commits: &str,
+) -> Result<BranchAnalysis, Box<dyn std::error::Error>> {
+    let prompt = format!(
+        r#"You are a git branch analyzer. Determine if the current commit belongs on this branch.
+
+CURRENT BRANCH: {current_branch}
+
+RECENT COMMITS ON THIS BRANCH:
+{recent_commits}
+
+FILES BEING CHANGED IN THIS COMMIT:
+{files_changed}
+
+NEW COMMIT MESSAGE:
+{commit_message}
+
+ANALYSIS RULES:
+1. Protected branches (main, master, develop, dev, staging, production) - NEVER match, always suggest a feature branch
+2. If the branch has no prior commits or recent commits are empty, focus on whether the branch NAME aligns with the commit
+3. Consider the AREA of work: if recent commits and this commit touch similar files/modules, it's likely related work
+4. Different commit TYPES (feat, fix, refactor, etc.) on the same feature branch are NORMAL - a feature branch often has feat + fix + refactor commits
+5. Only flag as mismatch if this commit is clearly UNRELATED work (different feature/module entirely)
+
+BRANCH NAMING CONVENTION: <type>/<scope>-<short-description>
+Examples: feat/auth-refresh-token, fix/ui-chat-scroll, refactor/server-ws-reconnect
+
+Respond with ONLY valid JSON:
+- If matches: {{"matches": true, "reason": "brief explanation"}}
+- If mismatch: {{"matches": false, "reason": "brief explanation", "suggested_branch": "type/scope-description"}}"#
+    );
+
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: prompt,
+        }],
+        stream: false,
+    };
+
+    let response = client
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("API error ({}): {}", status, body).into());
+    }
+
+    let response_body: NonStreamResponse = response.json().await?;
+    let content = response_body
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    let content = content.trim();
+    let content = content.strip_prefix("```json").unwrap_or(content);
+    let content = content.strip_prefix("```").unwrap_or(content);
+    let content = content.strip_suffix("```").unwrap_or(content);
+    let content = content.trim();
+
+    let analysis: BranchAnalysis = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse branch analysis: {} - raw: {}", e, content))?;
+
+    Ok(analysis)
 }
 
 // ============================================================================
 // User Interaction
 // ============================================================================
 
-fn prompt_yes_no(prompt: &str) -> bool {
-    print!("{} [y/N] ", prompt);
-    io::stdout().flush().unwrap();
+enum CommitAction {
+    Commit(String),
+    Cancel,
+}
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+fn prompt_commit(message: &str) -> CommitAction {
+    loop {
+        print!("Commit? [y/n/e] ");
+        io::stdout().flush().unwrap();
 
-    matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => return CommitAction::Commit(message.to_string()),
+            "n" | "no" => return CommitAction::Cancel,
+            "e" | "edit" => {
+                let edited: String = dialoguer::Editor::new()
+                    .extension(".txt")
+                    .edit(message)
+                    .unwrap_or(None)
+                    .unwrap_or_else(|| message.to_string());
+                return CommitAction::Commit(edited);
+            }
+            _ => println!("Please enter y, n, or e"),
+        }
+    }
 }
 
 // ============================================================================
@@ -948,48 +988,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if cli.branch || cli.auto_branch {
         let current_branch = get_current_branch().await?;
+        let recent_commits = get_recent_commits(5).await.unwrap_or_default();
 
-        if let Some(parsed) = parse_commit_message(&message) {
-            let check = check_branch_alignment(&current_branch, &parsed);
+        let branch_spinner = ProgressBar::new_spinner();
+        branch_spinner.set_style(
+            ProgressStyle::default_spinner()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                .template("Analyzing branch alignment {spinner}")
+                .unwrap(),
+        );
+        branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
 
-            if !check.matches {
-                if cli.auto_branch {
-                    println!(
-                        "— Branch '{}' → '{}' ({})",
-                        current_branch, check.suggested_branch, check.reason
-                    );
-                    create_and_switch_branch(&check.suggested_branch).await?;
-                } else {
-                    match prompt_branch_action(
-                        &current_branch,
-                        &check.suggested_branch,
-                        &check.reason,
-                    ) {
-                        BranchAction::Create(name) => {
-                            create_and_switch_branch(&name).await?;
-                            println!("— Switched to branch '{}'", name);
-                        }
-                        BranchAction::Skip => {
-                            println!("— Continuing on '{}'", current_branch);
-                        }
+        let analysis = analyze_branch_alignment(
+            &client,
+            &api_key,
+            model,
+            &current_branch,
+            &message,
+            &files,
+            &recent_commits,
+        )
+        .await?;
+
+        branch_spinner.finish_and_clear();
+
+        if verbose {
+            eprintln!("[Branch Analysis]: {}\n", analysis.reason);
+        }
+
+        if !analysis.matches {
+            let suggested = analysis
+                .suggested_branch
+                .unwrap_or_else(|| generate_fallback_branch(&message));
+
+            if cli.auto_branch {
+                println!(
+                    "— Branch '{}' → '{}' ({})",
+                    current_branch, suggested, analysis.reason
+                );
+                create_and_switch_branch(&suggested).await?;
+            } else {
+                match prompt_branch_action(&current_branch, &suggested, &analysis.reason) {
+                    BranchAction::Create(name) => {
+                        create_and_switch_branch(&name).await?;
+                        println!("— Switched to branch '{}'", name);
+                    }
+                    BranchAction::Skip => {
+                        println!("— Continuing on '{}'", current_branch);
                     }
                 }
             }
         }
     }
 
-    // Handle commit logic
     if cli.dry_run {
         return Ok(());
     }
 
-    let should_commit = cli.yes || config.auto_commit || prompt_yes_no("Commit?");
-
-    if should_commit {
+    if cli.yes || config.auto_commit {
         run_git_commit(&message).await?;
         println!("— Committed");
     } else {
-        println!("— Cancelled");
+        match prompt_commit(&message) {
+            CommitAction::Commit(final_message) => {
+                run_git_commit(&final_message).await?;
+                println!("— Committed");
+            }
+            CommitAction::Cancel => {
+                println!("— Cancelled");
+            }
+        }
     }
 
     Ok(())
