@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 use console::Term;
+use dialoguer::Input;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
@@ -121,8 +123,12 @@ struct Cli {
     #[arg(short, long)]
     model: Option<String>,
 
-    /// Auto-create branch if commit doesn't match current branch
+    /// Interactive branch suggestion on mismatch [y/n/e]
     #[arg(short = 'b', long)]
+    branch: bool,
+
+    /// Auto-create branch on mismatch (non-interactive, just logs)
+    #[arg(short = 'B', long)]
     auto_branch: bool,
 
     /// Show detailed operation logs (excluded files, truncation, etc.)
@@ -432,6 +438,217 @@ async fn create_and_switch_branch(branch_name: &str) -> Result<(), Box<dyn std::
 }
 
 // ============================================================================
+// Branch Analysis
+// ============================================================================
+
+const PROTECTED_BRANCHES: &[&str] = &["main", "master", "develop", "dev", "staging", "production"];
+
+const COMMIT_TYPES: &[&str] = &[
+    "feat", "fix", "refactor", "perf", "style", "docs", "test", "chore", "build", "ci", "deps",
+    "config", "security", "revert", "hotfix", "release",
+];
+
+const FILLER_WORDS: &[&str] = &[
+    "add",
+    "update",
+    "fix",
+    "remove",
+    "delete",
+    "change",
+    "modify",
+    "implement",
+    "create",
+    "make",
+    "set",
+    "get",
+    "use",
+    "handle",
+    "support",
+    "enable",
+    "disable",
+    "allow",
+    "improve",
+    "enhance",
+    "the",
+    "a",
+    "an",
+    "to",
+    "for",
+    "of",
+    "in",
+    "on",
+    "with",
+    "and",
+    "or",
+];
+
+struct ParsedCommit {
+    commit_type: String,
+    scope: Option<String>,
+    description: String,
+}
+
+struct BranchCheck {
+    matches: bool,
+    reason: String,
+    suggested_branch: String,
+}
+
+enum BranchAction {
+    Create(String),
+    Skip,
+}
+
+fn parse_commit_message(message: &str) -> Option<ParsedCommit> {
+    let first_line = message.lines().next()?;
+
+    // Pattern: type(scope): description  OR  type: description
+    let re = Regex::new(r"^([a-z]+)(?:\(([^)]+)\))?:\s*(.+)$").ok()?;
+    let caps = re.captures(first_line)?;
+
+    let commit_type = caps.get(1)?.as_str().to_string();
+    let scope = caps.get(2).map(|m| m.as_str().to_string());
+    let description = caps.get(3)?.as_str().to_string();
+
+    if !COMMIT_TYPES.contains(&commit_type.as_str()) {
+        return None;
+    }
+
+    Some(ParsedCommit {
+        commit_type,
+        scope,
+        description,
+    })
+}
+
+fn slugify(text: &str, max_words: usize) -> String {
+    let words: Vec<&str> = text
+        .split_whitespace()
+        .filter(|w| !FILLER_WORDS.contains(&w.to_lowercase().as_str()))
+        .take(max_words)
+        .collect();
+
+    if words.is_empty() {
+        let fallback: Vec<&str> = text.split_whitespace().take(max_words).collect();
+        return fallback
+            .join("-")
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect();
+    }
+
+    words
+        .join("-")
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect()
+}
+
+fn generate_branch_name(parsed: &ParsedCommit) -> String {
+    let desc_slug = slugify(&parsed.description, 3);
+
+    match &parsed.scope {
+        Some(scope) => format!("{}/{}-{}", parsed.commit_type, scope, desc_slug),
+        None => format!("{}/{}", parsed.commit_type, desc_slug),
+    }
+}
+
+fn extract_branch_type(branch: &str) -> Option<&str> {
+    let type_part = branch.split('/').next()?;
+    if COMMIT_TYPES.contains(&type_part) {
+        Some(type_part)
+    } else {
+        None
+    }
+}
+
+fn extract_branch_scope(branch: &str) -> Option<String> {
+    branch
+        .split('/')
+        .nth(1)
+        .and_then(|rest| rest.split('-').next().map(|s| s.to_string()))
+}
+
+fn check_branch_alignment(current_branch: &str, parsed: &ParsedCommit) -> BranchCheck {
+    let suggested = generate_branch_name(parsed);
+
+    if PROTECTED_BRANCHES.contains(&current_branch) {
+        return BranchCheck {
+            matches: false,
+            reason: format!("'{}' is a protected branch", current_branch),
+            suggested_branch: suggested,
+        };
+    }
+
+    if let Some(branch_type) = extract_branch_type(current_branch) {
+        if branch_type != parsed.commit_type {
+            return BranchCheck {
+                matches: false,
+                reason: format!(
+                    "branch type '{}' doesn't match commit type '{}'",
+                    branch_type, parsed.commit_type
+                ),
+                suggested_branch: suggested,
+            };
+        }
+
+        if let Some(branch_scope) = extract_branch_scope(current_branch) {
+            if let Some(commit_scope) = &parsed.scope {
+                if branch_scope != *commit_scope {
+                    return BranchCheck {
+                        matches: false,
+                        reason: format!(
+                            "branch scope '{}' doesn't match commit scope '{}'",
+                            branch_scope, commit_scope
+                        ),
+                        suggested_branch: suggested,
+                    };
+                }
+            }
+        }
+    }
+
+    BranchCheck {
+        matches: true,
+        reason: String::new(),
+        suggested_branch: String::new(),
+    }
+}
+
+fn prompt_branch_action(current: &str, suggested: &str, reason: &str) -> BranchAction {
+    println!();
+    println!("⚠ Branch mismatch detected");
+    println!("  Current: {}", current);
+    println!("  Suggested: {}", suggested);
+    println!("  Reason: {}", reason);
+    println!();
+
+    loop {
+        print!("Create branch? [y/n/e] ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => return BranchAction::Create(suggested.to_string()),
+            "n" | "no" => return BranchAction::Skip,
+            "e" | "edit" => {
+                let edited: String = Input::new()
+                    .with_prompt("Branch name")
+                    .default(suggested.to_string())
+                    .interact_text()
+                    .unwrap();
+                return BranchAction::Create(edited);
+            }
+            _ => println!("Please enter y, n, or e"),
+        }
+    }
+}
+
+// ============================================================================
 // OpenRouter API
 // ============================================================================
 
@@ -592,100 +809,6 @@ async fn stream_commit_message(
     Ok(full_message.trim().to_string())
 }
 
-#[derive(Deserialize)]
-struct BranchSuggestion {
-    matches: bool,
-    branch_name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct NonStreamChoice {
-    message: NonStreamMessage,
-}
-
-#[derive(Deserialize)]
-struct NonStreamMessage {
-    content: String,
-}
-
-#[derive(Deserialize)]
-struct NonStreamResponse {
-    choices: Vec<NonStreamChoice>,
-}
-
-async fn check_branch_match(
-    client: &Client,
-    api_key: &str,
-    model: &str,
-    commit_message: &str,
-    current_branch: &str,
-) -> Result<BranchSuggestion, Box<dyn std::error::Error>> {
-    let prompt = format!(
-        r#"You are a git branch analyzer. Given a commit message and current branch name, determine if they match semantically.
-
-Current branch: {current_branch}
-Commit message: {commit_message}
-
-Rules:
-1. If on "main", "master", "develop", or "dev" - they NEVER match (always need a feature branch)
-2. Otherwise, check if the commit type and general topic align with the branch name
-3. For example: branch "feat/user-auth" matches commit "FEAT(auth): add login validation"
-4. But: branch "refactor/ui" does NOT match commit "FEAT(api): add new endpoint"
-
-If they don't match, suggest a new branch name in format: type/short-description
-- type should be lowercase: feat, fix, refactor, docs, style, perf, test, chore
-- description should be lowercase, hyphen-separated, 2-4 words max
-
-Respond with ONLY valid JSON (no markdown, no explanation):
-{{"matches": true}} or {{"matches": false, "branch_name": "feat/example-name"}}"#
-    );
-
-    let request = ChatRequest {
-        model: model.to_string(),
-        messages: vec![Message {
-            role: "user".to_string(),
-            content: prompt,
-        }],
-        stream: false,
-    };
-
-    let response = client
-        .post(OPENROUTER_API_URL)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("API error ({}): {}", status, body).into());
-    }
-
-    let response_body: NonStreamResponse = response.json().await?;
-    let content = response_body
-        .choices
-        .first()
-        .map(|c| c.message.content.clone())
-        .unwrap_or_default();
-
-    let content = content.trim();
-    let content = content.strip_prefix("```json").unwrap_or(content);
-    let content = content.strip_prefix("```").unwrap_or(content);
-    let content = content.strip_suffix("```").unwrap_or(content);
-    let content = content.trim();
-
-    let suggestion: BranchSuggestion = serde_json::from_str(content).map_err(|e| {
-        format!(
-            "Failed to parse branch suggestion: {} - raw: {}",
-            e, content
-        )
-    })?;
-
-    Ok(suggestion)
-}
-
 // ============================================================================
 // User Interaction
 // ============================================================================
@@ -823,31 +946,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    // Handle auto-branch logic
-    if cli.auto_branch {
+    if cli.branch || cli.auto_branch {
         let current_branch = get_current_branch().await?;
 
-        let branch_spinner = ProgressBar::new_spinner();
-        branch_spinner.set_style(
-            ProgressStyle::default_spinner()
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                .template("Checking branch match {spinner}")
-                .unwrap(),
-        );
-        branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+        if let Some(parsed) = parse_commit_message(&message) {
+            let check = check_branch_alignment(&current_branch, &parsed);
 
-        let suggestion =
-            check_branch_match(&client, &api_key, model, &message, &current_branch).await?;
-        branch_spinner.finish_and_clear();
-
-        if !suggestion.matches {
-            if let Some(new_branch) = suggestion.branch_name {
-                println!(
-                    "— Branch '{}' doesn't match commit, creating '{}'",
-                    current_branch, new_branch
-                );
-                create_and_switch_branch(&new_branch).await?;
-                println!("— Switched to branch '{}'", new_branch);
+            if !check.matches {
+                if cli.auto_branch {
+                    println!(
+                        "— Branch '{}' → '{}' ({})",
+                        current_branch, check.suggested_branch, check.reason
+                    );
+                    create_and_switch_branch(&check.suggested_branch).await?;
+                } else {
+                    match prompt_branch_action(
+                        &current_branch,
+                        &check.suggested_branch,
+                        &check.reason,
+                    ) {
+                        BranchAction::Create(name) => {
+                            create_and_switch_branch(&name).await?;
+                            println!("— Switched to branch '{}'", name);
+                        }
+                        BranchAction::Skip => {
+                            println!("— Continuing on '{}'", current_branch);
+                        }
+                    }
+                }
             }
         }
     }
