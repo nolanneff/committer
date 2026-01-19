@@ -545,12 +545,19 @@ fn generate_fallback_branch(commit_message: &str) -> String {
     }
 }
 
-fn prompt_branch_action(current: &str, suggested: &str, reason: &str) -> BranchAction {
-    println!("⚠ Branch mismatch detected");
-    println!("  Current: {}", current);
-    println!("  Suggested: {}", suggested);
-    println!("  Reason: {}", reason);
-    println!();
+fn prompt_branch_action(
+    current: &str,
+    suggested: &str,
+    reason: &str,
+    show_mismatch_header: bool,
+) -> BranchAction {
+    if show_mismatch_header {
+        println!("⚠ Branch mismatch detected");
+        println!("  Current: {}", current);
+        println!("  Suggested: {}", suggested);
+        println!("  Reason: {}", reason);
+        println!();
+    }
 
     let mut current_suggestion = suggested.to_string();
 
@@ -837,6 +844,70 @@ Respond with ONLY valid JSON:
     Ok(analysis)
 }
 
+async fn generate_branch_suggestion(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    commit_message: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let prompt = format!(
+        r#"Given this commit message, suggest an appropriate git branch name.
+
+COMMIT MESSAGE:
+{commit_message}
+
+BRANCH NAMING RULES:
+1. Use format: <type>/<scope>-<short-description>
+2. Type should match the commit type (feat, fix, docs, refactor, test, chore, etc.)
+3. Scope is the area/module being changed (auth, ui, server, api, etc.)
+4. Description should be kebab-case, concise (2-4 words)
+5. Keep the full branch name under 50 characters when possible
+
+BRANCH NAMING CONVENTION: <type>/<scope>-<short-description>
+Examples: feat/auth-refresh-token, fix/ui-chat-scroll, refactor/server-ws-reconnect
+
+Respond with ONLY the branch name, nothing else."#
+    );
+
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: prompt,
+        }],
+        stream: false,
+    };
+
+    let response = client
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .header("X-Title", "committer")
+        .header("HTTP-Referer", "https://github.com/nolancui/committer")
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(format!("API request failed: {}", response.status()).into());
+    }
+
+    let response_body: NonStreamResponse = response.json().await?;
+    let content = response_body
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    let branch_name = content.trim().to_string();
+
+    if branch_name.is_empty() {
+        return Err("Empty branch name returned".into());
+    }
+
+    Ok(branch_name)
+}
+
 // ============================================================================
 // User Interaction
 // ============================================================================
@@ -844,13 +915,26 @@ Respond with ONLY valid JSON:
 enum CommitAction {
     Commit(String),
     Cancel,
+    CreateBranch(String),
 }
 
-fn prompt_commit(message: &str) -> CommitAction {
+fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
     let mut current_message = message.to_string();
 
+    let prompt_text = if show_branch_option {
+        "Commit? [y/n/e/b] "
+    } else {
+        "Commit? [y/n/e] "
+    };
+
+    let invalid_msg = if show_branch_option {
+        "Please enter y, n, e, or b"
+    } else {
+        "Please enter y, n, or e"
+    };
+
     loop {
-        print!("Commit? [y/n/e] ");
+        print!("{}", prompt_text);
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -869,7 +953,10 @@ fn prompt_commit(message: &str) -> CommitAction {
                 println!();
                 println!("{}", current_message);
             }
-            _ => println!("Please enter y, n, or e"),
+            "b" | "branch" if show_branch_option => {
+                return CommitAction::CreateBranch(current_message)
+            }
+            _ => println!("{}", invalid_msg),
         }
     }
 }
@@ -1039,7 +1126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 create_and_switch_branch(&suggested).await?;
             } else {
-                match prompt_branch_action(&current_branch, &suggested, &analysis.reason) {
+                match prompt_branch_action(&current_branch, &suggested, &analysis.reason, true) {
                     BranchAction::Create(name) => {
                         create_and_switch_branch(&name).await?;
                         println!("— Switched to branch '{}'", name);
@@ -1060,13 +1147,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_git_commit(&message).await?;
         println!("— Committed");
     } else {
-        match prompt_commit(&message) {
-            CommitAction::Commit(final_message) => {
-                run_git_commit(&final_message).await?;
-                println!("— Committed");
-            }
-            CommitAction::Cancel => {
-                println!("— Cancelled");
+        let mut show_branch_option = true;
+        let mut current_message = message.clone();
+
+        loop {
+            match prompt_commit(&current_message, show_branch_option) {
+                CommitAction::Commit(final_message) => {
+                    run_git_commit(&final_message).await?;
+                    println!("— Committed");
+                    break;
+                }
+                CommitAction::Cancel => {
+                    println!("— Cancelled");
+                    break;
+                }
+                CommitAction::CreateBranch(msg) => {
+                    current_message = msg;
+
+                    let branch_spinner = ProgressBar::new_spinner();
+                    branch_spinner.set_style(
+                        ProgressStyle::default_spinner()
+                            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                            .template("Generating branch name {spinner}")
+                            .unwrap(),
+                    );
+                    branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+
+                    let suggested = match generate_branch_suggestion(
+                        &client,
+                        &api_key,
+                        model,
+                        &current_message,
+                    )
+                    .await
+                    {
+                        Ok(name) => name,
+                        Err(_) => generate_fallback_branch(&current_message),
+                    };
+
+                    branch_spinner.finish_and_clear();
+
+                    let current_branch = get_current_branch().await.unwrap_or_default();
+                    println!("🌿 Suggested branch: {}", suggested);
+                    println!();
+
+                    match prompt_branch_action(&current_branch, &suggested, "", false) {
+                        BranchAction::Create(name) => {
+                            create_and_switch_branch(&name).await?;
+                            println!("— Switched to branch '{}'", name);
+                        }
+                        BranchAction::Skip => {
+                            println!("— Continuing on '{}'", current_branch);
+                        }
+                    }
+
+                    println!();
+                    println!("{}", current_message);
+
+                    // Disable branch option for next iteration
+                    show_branch_option = false;
+                }
             }
         }
     }
