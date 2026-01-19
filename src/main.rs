@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use console::Term;
 use dialoguer::Input;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
