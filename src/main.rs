@@ -14,7 +14,7 @@ use tokio::process::Command;
 // Configuration
 // ============================================================================
 
-const DEFAULT_MODEL: &str = "z-ai/glm-4.7";
+const DEFAULT_MODEL: &str = "google/gemini-3-flash-preview";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 const EXCLUDED_FROM_DIFF: &[&str] = &[
@@ -560,6 +560,7 @@ fn prompt_branch_action(
     show_mismatch_header: bool,
 ) -> BranchAction {
     if show_mismatch_header {
+        println!();
         println!("⚠ Branch mismatch detected");
         println!("  Current: {}", current);
         println!("  Suggested: {}", suggested);
@@ -690,6 +691,7 @@ async fn stream_commit_message(
     diff: &str,
     files: &str,
     spinner: &ProgressBar,
+    verbose: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let prompt = build_prompt(diff, files);
 
@@ -700,9 +702,7 @@ async fn stream_commit_message(
             content: prompt,
         }],
         stream: true,
-        provider: Some(ProviderPreference {
-            order: vec!["Cerebras".to_string()],
-        }),
+        provider: None,
     };
 
     let response = client
@@ -718,41 +718,70 @@ async fn stream_commit_message(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        spinner.disable_steady_tick();
         spinner.finish_and_clear();
         return Err(format!("API error ({}): {}", status, body).into());
+    }
+
+    if verbose {
+        eprintln!("[Stream] Starting to read response stream...");
     }
 
     let mut stream = response.bytes_stream();
     let mut full_message = String::new();
     let mut stdout = io::stdout();
     let mut first_chunk = true;
+    let mut raw_response = String::new();
+    let mut chunk_count = 0;
+    let mut sse_lines_found = 0;
 
     'outer: while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
         let text = String::from_utf8_lossy(&chunk);
+        raw_response.push_str(&text);
+        chunk_count += 1;
+
+        if verbose {
+            eprintln!("[Stream] Chunk {}: {} bytes, preview: {:?}",
+                chunk_count,
+                chunk.len(),
+                text.chars().take(100).collect::<String>()
+            );
+        }
 
         // SSE format: each line starts with "data: "
         for line in text.lines() {
             if let Some(data) = line.strip_prefix("data: ") {
+                sse_lines_found += 1;
                 if data == "[DONE]" {
+                    if verbose {
+                        eprintln!("[Stream] Received [DONE] signal");
+                    }
                     break 'outer;
                 }
 
-                if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
-                    for choice in parsed.choices {
-                        if let Some(content) = choice.delta.content {
-                            if first_chunk {
-                                spinner.set_style(
-                                    ProgressStyle::default_spinner()
-                                        .template("Generating commit message [x]")
-                                        .unwrap(),
-                                );
-                                spinner.finish_and_clear();
-                                first_chunk = false;
+                match serde_json::from_str::<StreamChunk>(data) {
+                    Ok(parsed) => {
+                        for choice in parsed.choices {
+                            if let Some(content) = choice.delta.content {
+                                if first_chunk {
+                                    if verbose {
+                                        eprintln!("[Stream] First content chunk, clearing spinner");
+                                    }
+                                    spinner.disable_steady_tick();
+                                    spinner.finish_and_clear();
+                                    println!(); // Ensure clean line after spinner
+                                    first_chunk = false;
+                                }
+                                print!("{}", content);
+                                stdout.flush()?;
+                                full_message.push_str(&content);
                             }
-                            print!("{}", content);
-                            stdout.flush()?;
-                            full_message.push_str(&content);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            eprintln!("[Stream] Parse error: {} for data: {:?}", e, data.chars().take(100).collect::<String>());
                         }
                     }
                 }
@@ -760,7 +789,41 @@ async fn stream_commit_message(
         }
     }
 
-    println!();
+    if verbose {
+        eprintln!("[Stream] Stream ended. Total chunks: {}, SSE lines: {}, message length: {}",
+            chunk_count, sse_lines_found, full_message.len());
+    }
+
+    // Fallback: if streaming produced nothing, try parsing as non-streaming response
+    if full_message.is_empty() && !raw_response.is_empty() {
+        if verbose {
+            eprintln!("[Stream] No streaming content, trying non-streaming fallback...");
+            eprintln!("[Stream] Raw response preview: {:?}", &raw_response.chars().take(300).collect::<String>());
+        }
+
+        spinner.disable_steady_tick();
+        spinner.finish_and_clear();
+
+        // Try parsing as a complete non-streaming response
+        if let Ok(parsed) = serde_json::from_str::<NonStreamResponse>(&raw_response) {
+            if let Some(choice) = parsed.choices.first() {
+                full_message = choice.message.content.clone();
+                println!("{}", full_message);
+                if verbose {
+                    eprintln!("[Stream] Fallback succeeded");
+                }
+            }
+        } else if verbose {
+            eprintln!("[Stream] Fallback parse failed");
+        }
+    } else if !first_chunk {
+        // Only print newline if we actually printed content
+        println!();
+    } else {
+        // Spinner still running but no content - clear it
+        spinner.disable_steady_tick();
+        spinner.finish_and_clear();
+    }
 
     Ok(full_message.trim().to_string())
 }
@@ -825,9 +888,7 @@ Respond with ONLY valid JSON:
             content: prompt,
         }],
         stream: false,
-        provider: Some(ProviderPreference {
-            order: vec!["Cerebras".to_string()],
-        }),
+        provider: None,
     };
 
     let response = client
@@ -897,9 +958,7 @@ Respond with ONLY the branch name, nothing else."#
             content: prompt,
         }],
         stream: false,
-        provider: Some(ProviderPreference {
-            order: vec!["Cerebras".to_string()],
-        }),
+        provider: None,
     };
 
     let response = client
@@ -1094,17 +1153,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .template("Generating commit message {spinner}")
             .unwrap(),
     );
-    spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-    // Hide cursor while spinner is active
-    let term = Term::stdout();
-    let _ = term.hide_cursor();
+    // Ensure spinner renders before starting API call
+    std::io::stdout().flush().ok();
 
     let message_result =
-        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner).await;
-
-    // Show cursor again
-    let _ = term.show_cursor();
+        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner, verbose).await;
 
     let message = message_result?;
 
