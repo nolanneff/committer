@@ -45,6 +45,8 @@ const EXCLUDED_FROM_DIFF: &[&str] = &[
 struct Config {
     #[serde(default)]
     auto_commit: bool,
+    #[serde(default)]
+    commit_after_branch: bool,
     #[serde(default = "default_model")]
     model: String,
     #[serde(default)]
@@ -59,6 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             auto_commit: false,
+            commit_after_branch: false,
             model: default_model(),
             verbose: false,
         }
@@ -151,6 +154,11 @@ enum ConfigAction {
     Show,
     /// Set auto-commit behavior
     AutoCommit {
+        /// true or false
+        value: String,
+    },
+    /// Auto-commit after creating branch via 'b' option
+    CommitAfterBranch {
         /// true or false
         value: String,
     },
@@ -976,6 +984,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ConfigAction::Show => {
                 println!("Config file: {}", config_path().display());
                 println!("auto_commit: {}", config.auto_commit);
+                println!("commit_after_branch: {}", config.commit_after_branch);
                 println!("model: {}", config.model);
                 println!("verbose: {}", config.verbose);
                 println!(
@@ -991,6 +1000,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.auto_commit = value.parse().unwrap_or(false);
                 save_config(&config)?;
                 println!("auto_commit set to: {}", config.auto_commit);
+            }
+            ConfigAction::CommitAfterBranch { value } => {
+                config.commit_after_branch = value.parse().unwrap_or(false);
+                save_config(&config)?;
+                println!("commit_after_branch set to: {}", config.commit_after_branch);
             }
             ConfigAction::Model { value } => {
                 config.model = value;
@@ -1191,14 +1205,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("🌿 Suggested branch: {}", suggested);
                     println!();
 
-                    match prompt_branch_action(&current_branch, &suggested, "", false) {
-                        BranchAction::Create(name) => {
-                            create_and_switch_branch(&name).await?;
-                            println!("— Switched to branch '{}'", name);
-                        }
-                        BranchAction::Skip => {
-                            println!("— Continuing on '{}'", current_branch);
-                        }
+                    let branch_created =
+                        match prompt_branch_action(&current_branch, &suggested, "", false) {
+                            BranchAction::Create(name) => {
+                                create_and_switch_branch(&name).await?;
+                                println!("— Switched to branch '{}'", name);
+                                true
+                            }
+                            BranchAction::Skip => {
+                                println!("— Continuing on '{}'", current_branch);
+                                false
+                            }
+                        };
+
+                    // Auto-commit if config enabled and branch was created
+                    if config.commit_after_branch && branch_created {
+                        run_git_commit(&current_message).await?;
+                        println!("— Committed");
+                        break;
                     }
 
                     println!();
