@@ -14,7 +14,7 @@ use tokio::process::Command;
 // Configuration
 // ============================================================================
 
-const DEFAULT_MODEL: &str = "google/gemini-2.0-flash-001";
+const DEFAULT_MODEL: &str = "z-ai/glm-4.7";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 const EXCLUDED_FROM_DIFF: &[&str] = &[
@@ -602,6 +602,13 @@ struct ChatRequest {
     model: String,
     messages: Vec<Message>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<ProviderPreference>,
+}
+
+#[derive(Serialize)]
+struct ProviderPreference {
+    order: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -693,13 +700,16 @@ async fn stream_commit_message(
             content: prompt,
         }],
         stream: true,
+        provider: Some(ProviderPreference {
+            order: vec!["Cerebras".to_string()],
+        }),
     };
 
     let response = client
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .header("X-Title", "committer")
+        .header("X-Title", "Committer")
         .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
         .json(&request)
         .send()
@@ -795,10 +805,10 @@ NEW COMMIT MESSAGE:
 
 ANALYSIS RULES:
 1. Protected branches (main, master, develop, dev, staging, production) - NEVER match, always suggest a feature branch
-2. If the branch has no prior commits or recent commits are empty, focus on whether the branch NAME aligns with the commit
-3. Consider the AREA of work: if recent commits and this commit touch similar files/modules, it's likely related work
-4. Different commit TYPES (feat, fix, refactor, etc.) on the same feature branch are NORMAL - a feature branch often has feat + fix + refactor commits
-5. Only flag as mismatch if this commit is clearly UNRELATED work (different feature/module entirely)
+2. The commit scope/module MUST relate to the branch name. Example: branch "feat/auth-login" should only have auth-related commits, NOT unrelated features like "feat(db): add migration"
+3. Different commit TYPES (feat, fix, refactor, docs, test) on the SAME feature are fine - e.g., feat/auth can have "feat(auth): add login" then "fix(auth): handle edge case" then "docs(auth): add comments"
+4. If the commit introduces a NEW scope/module not mentioned in the branch name, flag as MISMATCH
+5. Be STRICT: when in doubt, flag as mismatch. It's better to suggest a new branch than pollute an existing one with unrelated work
 
 BRANCH NAMING CONVENTION: <type>/<scope>-<short-description>
 Examples: feat/auth-refresh-token, fix/ui-chat-scroll, refactor/server-ws-reconnect
@@ -815,13 +825,16 @@ Respond with ONLY valid JSON:
             content: prompt,
         }],
         stream: false,
+        provider: Some(ProviderPreference {
+            order: vec!["Cerebras".to_string()],
+        }),
     };
 
     let response = client
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .header("X-Title", "committer")
+        .header("X-Title", "Committer")
         .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
         .json(&request)
         .send()
@@ -884,13 +897,16 @@ Respond with ONLY the branch name, nothing else."#
             content: prompt,
         }],
         stream: false,
+        provider: Some(ProviderPreference {
+            order: vec!["Cerebras".to_string()],
+        }),
     };
 
     let response = client
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .header("X-Title", "committer")
+        .header("X-Title", "Committer")
         .header("HTTP-Referer", "https://github.com/nolancui/committer")
         .json(&request)
         .send()
