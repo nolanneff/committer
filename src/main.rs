@@ -1098,6 +1098,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // Track if branch was already handled via --branch or --auto-branch flags
+    let mut branch_already_handled = false;
+
     if cli.branch || cli.auto_branch {
         let current_branch = get_current_branch().await?;
         let recent_commits = get_recent_commits(5).await.unwrap_or_default();
@@ -1139,14 +1142,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     current_branch, suggested, analysis.reason
                 );
                 create_and_switch_branch(&suggested).await?;
+                branch_already_handled = true;
             } else {
                 match prompt_branch_action(&current_branch, &suggested, &analysis.reason, true) {
                     BranchAction::Create(name) => {
                         create_and_switch_branch(&name).await?;
                         println!("— Switched to branch '{}'", name);
+                        branch_already_handled = true;
                     }
                     BranchAction::Skip => {
                         println!("— Continuing on '{}'", current_branch);
+                        branch_already_handled = true;
                     }
                 }
             }
@@ -1161,7 +1167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_git_commit(&message).await?;
         println!("— Committed");
     } else {
-        let mut show_branch_option = true;
+        let mut show_branch_option = !branch_already_handled;
         let mut current_message = message.clone();
 
         loop {
