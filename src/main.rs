@@ -1206,7 +1206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .suggested_branch
                 .unwrap_or_else(|| generate_fallback_branch(&message));
 
-            if cli.auto_branch {
+            if cli.auto_branch || cli.yes {
                 println!(
                     "— Branch '{}' → '{}' ({})",
                     current_branch, suggested, analysis.reason
