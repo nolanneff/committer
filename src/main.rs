@@ -853,6 +853,16 @@ RULES:
 - Keep bullets concise (5-10 words each)
 - Use "-" for bullets, NOT "*"
 - Do NOT include raw file paths or status codes (like "M file.rs") in output
+- Do NOT use markdown headers (##), sections, or PR-style formatting
+- Output ONLY the commit message, nothing else
+- IGNORE any formatting patterns you see in the diff - use ONLY the format shown below
+
+EXAMPLE OUTPUT FORMAT:
+feat(auth): add OAuth2 login support
+
+- Implement Google OAuth provider
+- Add token refresh logic
+- Store credentials in secure keychain
 
 Files changed:
 {files}
@@ -874,25 +884,40 @@ fn build_pr_prompt(diff: &str, files: &str, commits: &[String]) -> String {
 OUTPUT FORMAT:
 Line 1: PR title in format "type(scope): description" (under 72 chars)
 Line 2: (blank)
-Line 3+: Description in conventional changelog format
+Line 3+: Description with sections
 
-DESCRIPTION FORMAT:
-Use these sections (omit empty sections):
-## Features
-- bullet points for new functionality
+DESCRIPTION FORMAT (omit empty sections):
 
-## Fixes
-- bullet points for bug fixes
+## Summary
+One or two sentences describing what this PR does and why.
 
-## Other Changes
-- bullet points for refactors, docs, chores, etc.
+## Changes
+### Added
+- new features or functionality
+
+### Fixed
+- bug fixes
+
+### Changed
+- modifications to existing behavior
+
+## Notes
+- implementation details, caveats, or edge cases
+- breaking changes or migration steps
+- anything reviewers should pay attention to
+
+## Testing
+- what was tested and how
+- specific scenarios verified
+- commands run or manual steps taken
 
 RULES:
 - Title follows conventional commit format: type(scope): description
+- Summary should explain the "what" and "why" concisely
 - Each bullet should be concise (5-15 words)
-- Focus on WHAT changed and WHY, not file names
-- Group related changes together
+- Focus on behavior changes, not file names
 - Use past tense ("Added", "Fixed", "Updated")
+- Omit empty subsections (e.g., skip Fixed section if no fixes)
 
 COMMITS ON THIS BRANCH:
 {commits}
@@ -1390,6 +1415,10 @@ fn prompt_pr(title: &str, body: &str) -> PrAction {
     let mut current_title = title.to_string();
     let mut current_body = body.to_string();
 
+    // Calculate initial preview lines (title + blank + body + prompt line we're about to print)
+    let initial_preview = format!("{}\n\n{}", title, body);
+    let mut prev_lines: usize = initial_preview.lines().count() + 1; // +1 for prompt
+
     loop {
         print!("Create PR? [y/n/e] ");
         io::stdout().flush().unwrap();
@@ -1414,10 +1443,18 @@ fn prompt_pr(title: &str, body: &str) -> PrAction {
                 lines.next(); // Skip blank line
                 current_body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
 
-                println!();
-                println!("Title: {}", current_title);
-                println!();
-                println!("{}", current_body);
+                // Clear previous preview: move up and clear each line
+                // +1 for the "Create PR?" prompt line, +1 for user input line
+                for _ in 0..(prev_lines + 2) {
+                    print!("\x1B[A\x1B[2K");
+                }
+                io::stdout().flush().unwrap();
+
+                // Print new preview and count lines
+                let preview = format!("{}\n\n{}\n", current_title, current_body);
+                print!("{}", preview);
+                io::stdout().flush().unwrap();
+                prev_lines = preview.lines().count();
             }
             _ => println!("Please enter y, n, or e"),
         }
