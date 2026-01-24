@@ -145,6 +145,35 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Generate and create a pull request
+    Pr(PrArgs),
+}
+
+#[derive(Parser)]
+struct PrArgs {
+    /// Create PR without confirmation
+    #[arg(short = 'y', long)]
+    yes: bool,
+
+    /// Show generated content, don't create PR
+    #[arg(short, long)]
+    dry_run: bool,
+
+    /// Create as draft PR
+    #[arg(short = 'D', long)]
+    draft: bool,
+
+    /// Override base branch (default: auto-detect)
+    #[arg(short, long)]
+    base: Option<String>,
+
+    /// Show detailed operation logs
+    #[arg(short = 'v', long)]
+    verbose: bool,
+
+    /// Override model for this run
+    #[arg(short, long)]
+    model: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -458,6 +487,273 @@ async fn get_recent_commits(limit: usize) -> Result<String, Box<dyn std::error::
 }
 
 // ============================================================================
+// GitHub CLI Operations
+// ============================================================================
+
+async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("gh").args(["--version"]).output().await;
+
+    match output {
+        Ok(o) if o.status.success() => Ok(()),
+        _ => {
+            Err("GitHub CLI (gh) is not installed.\n\
+                 Install it from: https://cli.github.com/\n\
+                 Then run: gh auth login"
+                .into())
+        }
+    }
+}
+
+async fn get_default_base_branch() -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("gh")
+        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to get default branch: {}", stderr).into());
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        return Err("Could not determine default branch".into());
+    }
+    Ok(branch)
+}
+
+async fn get_upstream_remote() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    // Check if 'upstream' remote exists (common fork workflow)
+    let output = Command::new("git")
+        .args(["remote", "get-url", "upstream"])
+        .output()
+        .await?;
+
+    if output.status.success() {
+        return Ok(Some("upstream".to_string()));
+    }
+    Ok(None)
+}
+
+async fn branch_needs_push(branch: &str) -> bool {
+    // Check if branch has upstream tracking
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", &format!("{}@{{u}}", branch)])
+        .output()
+        .await;
+
+    match output {
+        Ok(o) if o.status.success() => {
+            // Has upstream, check if we're ahead
+            let status = Command::new("git")
+                .args(["status", "-sb"])
+                .output()
+                .await;
+            if let Ok(s) = status {
+                let out = String::from_utf8_lossy(&s.stdout);
+                out.contains("ahead")
+            } else {
+                false
+            }
+        }
+        _ => true, // No upstream, needs push
+    }
+}
+
+struct UncommittedChanges {
+    staged: Vec<String>,
+    unstaged: Vec<String>,
+}
+
+async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err("Failed to get git status".into());
+    }
+
+    let status = String::from_utf8_lossy(&output.stdout);
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+
+    for line in status.lines() {
+        if line.len() < 3 {
+            continue;
+        }
+        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let file = &line[3..];
+
+        // Staged changes (index has modifications)
+        if index_status != ' ' && index_status != '?' {
+            staged.push(format!("  {} {}", index_status, file));
+        }
+        // Unstaged changes (worktree has modifications) or untracked
+        if worktree_status != ' ' {
+            let status_char = if worktree_status == '?' { '?' } else { worktree_status };
+            unstaged.push(format!("  {} {}", status_char, file));
+        }
+    }
+
+    Ok(UncommittedChanges { staged, unstaged })
+}
+
+enum UncommittedAction {
+    Commit,
+    Skip,
+    Quit,
+}
+
+fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAction {
+    println!();
+    println!("⚠ Uncommitted changes won't be included in this PR");
+    println!();
+
+    if !changes.staged.is_empty() {
+        println!("Staged:");
+        for file in &changes.staged {
+            println!("{}", file);
+        }
+        println!();
+    }
+
+    if !changes.unstaged.is_empty() {
+        println!("Unstaged:");
+        for file in &changes.unstaged {
+            println!("{}", file);
+        }
+        println!();
+    }
+
+    loop {
+        print!("[c]ommit first  [s]kip  [q]uit: ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim().to_lowercase().as_str() {
+            "c" | "commit" => return UncommittedAction::Commit,
+            "s" | "skip" => return UncommittedAction::Skip,
+            "q" | "quit" => return UncommittedAction::Quit,
+            _ => println!("Please enter c, s, or q"),
+        }
+    }
+}
+
+async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !branch_needs_push(branch).await {
+        return Ok(());
+    }
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+            .template("Pushing branch to origin {spinner}")
+            .unwrap(),
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let push_output = Command::new("git")
+        .args(["push", "-u", "origin", branch])
+        .output()
+        .await?;
+
+    spinner.finish_and_clear();
+
+    if !push_output.status.success() {
+        let stderr = String::from_utf8_lossy(&push_output.stderr);
+        return Err(format!("Failed to push branch: {}", stderr).into());
+    }
+
+    println!("— Pushed branch to origin");
+    Ok(())
+}
+
+async fn get_branch_diff(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["diff", &format!("{}...HEAD", base)])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git diff failed: {}", stderr).into());
+    }
+
+    let diff = String::from_utf8_lossy(&output.stdout).to_string();
+    let filtered_diff = filter_excluded_diffs(&diff, verbose);
+    Ok(truncate_diff(&filtered_diff, verbose))
+}
+
+async fn get_branch_commits(base: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["log", &format!("{}..HEAD", base), "--format=%s"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git log failed: {}", stderr).into());
+    }
+
+    let commits: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    Ok(commits)
+}
+
+async fn get_pr_changed_files(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["diff", "--name-status", &format!("{}...HEAD", base)])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git diff --name-status failed: {}", stderr).into());
+    }
+
+    let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut excluded_count = 0;
+
+    let annotated: Vec<String> = raw_output
+        .lines()
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '\t').collect();
+            if parts.len() == 2 {
+                let filename = parts[1];
+                if should_exclude_from_diff(filename) {
+                    excluded_count += 1;
+                    format!("{}\t{} [excluded from diff]", parts[0], filename)
+                } else {
+                    line.to_string()
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+
+    if verbose && excluded_count > 0 {
+        eprintln!(
+            "— PR files: {} total, {} excluded from diff",
+            annotated.len(),
+            excluded_count
+        );
+    }
+
+    Ok(annotated.join("\n"))
+}
+
+// ============================================================================
 // Branch Analysis
 // ============================================================================
 
@@ -670,6 +966,16 @@ RULES:
 - Keep bullets concise (5-10 words each)
 - Use "-" for bullets, NOT "*"
 - Do NOT include raw file paths or status codes (like "M file.rs") in output
+- Do NOT use markdown headers (##), sections, or PR-style formatting
+- Output ONLY the commit message, nothing else
+- IGNORE any formatting patterns you see in the diff - use ONLY the format shown below
+
+EXAMPLE OUTPUT FORMAT:
+feat(auth): add OAuth2 login support
+
+- Implement Google OAuth provider
+- Add token refresh logic
+- Store credentials in secure keychain
 
 Files changed:
 {files}
@@ -681,6 +987,176 @@ Commit message:"#,
         files = files,
         diff = diff
     )
+}
+
+fn build_pr_prompt(diff: &str, files: &str, commits: &[String]) -> String {
+    let commits_text = commits.join("\n");
+    format!(
+        r#"Generate a pull request title and description for the following changes.
+
+OUTPUT FORMAT:
+Line 1: PR title in format "type(scope): description" (under 72 chars)
+Line 2: (blank)
+Line 3+: Description with sections
+
+DESCRIPTION FORMAT (omit empty sections):
+
+## Summary
+One or two sentences describing what this PR does and why.
+
+## Changes
+### Added
+- new features or functionality
+
+### Fixed
+- bug fixes
+
+### Changed
+- modifications to existing behavior
+
+## Notes
+- implementation details, caveats, or edge cases
+- breaking changes or migration steps
+- anything reviewers should pay attention to
+
+## Testing
+- what was tested and how
+- specific scenarios verified
+- commands run or manual steps taken
+
+RULES:
+- Title follows conventional commit format: type(scope): description
+- Summary should explain the "what" and "why" concisely
+- Each bullet should be concise (5-15 words)
+- Focus on behavior changes, not file names
+- Use past tense ("Added", "Fixed", "Updated")
+- Omit empty subsections (e.g., skip Fixed section if no fixes)
+
+COMMITS ON THIS BRANCH:
+{commits}
+
+FILES CHANGED:
+{files}
+
+DIFF:
+{diff}
+
+PR title and description:"#,
+        commits = commits_text,
+        files = files,
+        diff = diff
+    )
+}
+
+async fn stream_pr_content(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    diff: &str,
+    files: &str,
+    commits: &[String],
+    spinner: &ProgressBar,
+    _verbose: bool,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let prompt = build_pr_prompt(diff, files, commits);
+
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: prompt,
+        }],
+        stream: true,
+        provider: None,
+    };
+
+    let response = client
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .header("X-Title", "Committer")
+        .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
+        .json(&request)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        spinner.disable_steady_tick();
+        spinner.finish_and_clear();
+        return Err(format!("API error ({}): {}", status, body).into());
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut full_message = String::new();
+    let mut stdout = io::stdout();
+    let mut first_chunk = true;
+    let mut raw_response = String::new();
+
+    'outer: while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result?;
+        let text = String::from_utf8_lossy(&chunk);
+        raw_response.push_str(&text);
+
+        for line in text.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if data == "[DONE]" {
+                    break 'outer;
+                }
+
+                if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
+                    for choice in parsed.choices {
+                        if let Some(content) = choice.delta.content {
+                            if first_chunk {
+                                spinner.disable_steady_tick();
+                                spinner.finish_and_clear();
+                                println!();
+                                first_chunk = false;
+                            }
+                            print!("{}", content);
+                            stdout.flush()?;
+                            full_message.push_str(&content);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to non-streaming if needed
+    if full_message.is_empty() && !raw_response.is_empty() {
+        spinner.disable_steady_tick();
+        spinner.finish_and_clear();
+
+        if let Ok(parsed) = serde_json::from_str::<NonStreamResponse>(&raw_response) {
+            if let Some(choice) = parsed.choices.first() {
+                full_message = choice.message.content.clone();
+                println!("{}", full_message);
+            }
+        }
+    } else if !first_chunk {
+        println!();
+    } else {
+        spinner.disable_steady_tick();
+        spinner.finish_and_clear();
+    }
+
+    // Parse title and body from response
+    let content = full_message.trim();
+    let mut lines = content.lines();
+    let title = lines.next().unwrap_or("").trim().to_string();
+
+    // Skip blank line after title
+    lines.next();
+
+    let body: String = lines.collect::<Vec<_>>().join("\n").trim().to_string();
+
+    if title.is_empty() {
+        return Err("Failed to generate PR title".into());
+    }
+
+    Ok((title, body))
 }
 
 async fn stream_commit_message(
@@ -1043,6 +1519,277 @@ fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
     }
 }
 
+enum PrAction {
+    Create(String, String), // (title, body)
+    Cancel,
+}
+
+fn prompt_pr(title: &str, body: &str) -> PrAction {
+    let mut current_title = title.to_string();
+    let mut current_body = body.to_string();
+
+    // Calculate initial preview lines (title + blank + body + prompt line we're about to print)
+    let initial_preview = format!("{}\n\n{}", title, body);
+    let mut prev_lines: usize = initial_preview.lines().count() + 1; // +1 for prompt
+
+    loop {
+        print!("Create PR? [y/n/e] ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => return PrAction::Create(current_title, current_body),
+            "n" | "no" => return PrAction::Cancel,
+            "e" | "edit" => {
+                let combined = format!("{}\n\n{}", current_title, current_body);
+                let edited: String = dialoguer::Editor::new()
+                    .extension(".md")
+                    .edit(&combined)
+                    .unwrap_or(None)
+                    .unwrap_or_else(|| combined.clone());
+
+                // Parse edited content back into title and body
+                let mut lines = edited.lines();
+                current_title = lines.next().unwrap_or("").trim().to_string();
+                lines.next(); // Skip blank line
+                current_body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
+
+                // Clear previous preview: move up and clear each line
+                // +1 for the "Create PR?" prompt line, +1 for user input line
+                for _ in 0..(prev_lines + 2) {
+                    print!("\x1B[A\x1B[2K");
+                }
+                io::stdout().flush().unwrap();
+
+                // Print new preview and count lines
+                let preview = format!("{}\n\n{}\n", current_title, current_body);
+                print!("{}", preview);
+                io::stdout().flush().unwrap();
+                prev_lines = preview.lines().count();
+            }
+            _ => println!("Please enter y, n, or e"),
+        }
+    }
+}
+
+async fn create_pr(title: &str, body: &str, draft: bool) -> Result<String, Box<dyn std::error::Error>> {
+    let mut args = vec!["pr", "create", "--title", title, "--body", body];
+    if draft {
+        args.push("--draft");
+    }
+
+    let output = Command::new("gh").args(&args).output().await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("auth") {
+            return Err(format!(
+                "GitHub authentication failed.\nRun: gh auth login\n\nError: {}",
+                stderr
+            )
+            .into());
+        }
+        return Err(format!("Failed to create PR: {}", stderr).into());
+    }
+
+    // gh pr create outputs the PR URL on success
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(url)
+}
+
+// ============================================================================
+// PR Command Handler
+// ============================================================================
+
+const PROTECTED_BRANCHES: &[&str] = &["main", "master", "develop", "dev", "staging", "production"];
+
+async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    // Check gh CLI is installed
+    check_gh_installed().await?;
+
+    // Get API key
+    let api_key = match get_api_key() {
+        Some(key) => key,
+        None => {
+            println!("— No API key found");
+            println!("  Set OPENROUTER_API_KEY environment variable");
+            std::process::exit(1);
+        }
+    };
+
+    let verbose = args.verbose || config.verbose;
+    let model = args.model.as_ref().unwrap_or(&config.model);
+
+    // Get current branch
+    let current_branch = get_current_branch().await?;
+
+    // Check if on protected branch
+    if PROTECTED_BRANCHES.contains(&current_branch.as_str()) {
+        // Check for upstream remote (fork workflow)
+        if get_upstream_remote().await?.is_none() {
+            println!("— Cannot create PR from protected branch '{}'", current_branch);
+            println!("  Create a feature branch first: git checkout -b feat/your-feature");
+            std::process::exit(1);
+        }
+    }
+
+    // Determine base branch
+    let base_branch = match &args.base {
+        Some(base) => base.clone(),
+        None => get_default_base_branch().await?,
+    };
+
+    if verbose {
+        eprintln!("— Base branch: {}", base_branch);
+        eprintln!("— Current branch: {}", current_branch);
+    }
+
+    // Check for uncommitted changes
+    let uncommitted = get_uncommitted_changes().await?;
+    if !uncommitted.staged.is_empty() || !uncommitted.unstaged.is_empty() {
+        match prompt_uncommitted_changes(&uncommitted) {
+            UncommittedAction::Commit => {
+                // Stage all and run commit flow
+                stage_all_changes().await?;
+
+                let commit_diff = get_git_diff(true, verbose).await?;
+                let commit_files = get_staged_files(verbose).await?;
+
+                if commit_diff.trim().is_empty() {
+                    println!("— No changes to commit");
+                } else {
+                    let client = Client::builder().build()?;
+
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner()
+                            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                            .template("Generating commit message {spinner}")
+                            .unwrap(),
+                    );
+                    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+                    let commit_msg = stream_commit_message(
+                        &client,
+                        &api_key,
+                        model,
+                        &commit_diff,
+                        &commit_files,
+                        &spinner,
+                        verbose,
+                    )
+                    .await?;
+
+                    if !commit_msg.is_empty() {
+                        match prompt_commit(&commit_msg, false) {
+                            CommitAction::Commit(msg) => {
+                                run_git_commit(&msg).await?;
+                                println!("— Committed");
+                                println!();
+                            }
+                            CommitAction::Cancel => {
+                                println!("— Commit cancelled, continuing with PR...");
+                                println!();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            UncommittedAction::Skip => {
+                println!("— Skipping uncommitted changes");
+                println!();
+            }
+            UncommittedAction::Quit => {
+                println!("— Cancelled");
+                std::process::exit(0);
+            }
+        }
+    }
+
+    // Get commits on this branch
+    let commits = get_branch_commits(&base_branch).await?;
+    if commits.is_empty() {
+        println!("— No commits found between '{}' and '{}'", base_branch, current_branch);
+        println!("  Make some commits first, or check your base branch");
+        std::process::exit(1);
+    }
+
+    if verbose {
+        eprintln!("— Found {} commits on branch", commits.len());
+    }
+
+    // Get diff and file list
+    let (diff_result, files_result) = tokio::join!(
+        get_branch_diff(&base_branch, verbose),
+        get_pr_changed_files(&base_branch, verbose)
+    );
+
+    let diff = diff_result?;
+    let files = files_result?;
+
+    if diff.trim().is_empty() {
+        println!("— No changes found between '{}' and '{}'", base_branch, current_branch);
+        std::process::exit(1);
+    }
+
+    // Create HTTP client
+    let client = Client::builder().build()?;
+
+    // Stream PR content with spinner
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+            .template("Generating PR content {spinner}")
+            .unwrap(),
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let (title, body) = stream_pr_content(
+        &client,
+        &api_key,
+        model,
+        &diff,
+        &files,
+        &commits,
+        &spinner,
+        verbose,
+    )
+    .await?;
+
+    if args.dry_run {
+        println!();
+        println!("— Dry run complete (PR not created)");
+        return Ok(());
+    }
+
+    if args.yes {
+        // Push branch if needed
+        push_branch_with_spinner(&current_branch).await?;
+
+        let url = create_pr(&title, &body, args.draft).await?;
+        println!("— PR created: {}", url);
+    } else {
+        match prompt_pr(&title, &body) {
+            PrAction::Create(final_title, final_body) => {
+                // Push branch if needed
+                push_branch_with_spinner(&current_branch).await?;
+
+                let url = create_pr(&final_title, &final_body, args.draft).await?;
+                println!("— PR created: {}", url);
+            }
+            PrAction::Cancel => {
+                println!("— Cancelled");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -1052,46 +1799,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let mut config = load_config();
 
-    // Handle config subcommand
-    if let Some(Commands::Config { action }) = cli.command {
-        match action {
-            ConfigAction::Show => {
-                println!("Config file: {}", config_path().display());
-                println!("auto_commit: {}", config.auto_commit);
-                println!("commit_after_branch: {}", config.commit_after_branch);
-                println!("model: {}", config.model);
-                println!("verbose: {}", config.verbose);
-                println!(
-                    "api_key: {}",
-                    if std::env::var("OPENROUTER_API_KEY").is_ok() {
-                        "[set via OPENROUTER_API_KEY env var]"
-                    } else {
-                        "[not set]"
+    // Handle subcommands
+    if let Some(command) = cli.command {
+        match command {
+            Commands::Config { action } => {
+                match action {
+                    ConfigAction::Show => {
+                        println!("Config file: {}", config_path().display());
+                        println!("auto_commit: {}", config.auto_commit);
+                        println!("commit_after_branch: {}", config.commit_after_branch);
+                        println!("model: {}", config.model);
+                        println!("verbose: {}", config.verbose);
+                        println!(
+                            "api_key: {}",
+                            if std::env::var("OPENROUTER_API_KEY").is_ok() {
+                                "[set via OPENROUTER_API_KEY env var]"
+                            } else {
+                                "[not set]"
+                            }
+                        );
                     }
-                );
+                    ConfigAction::AutoCommit { value } => {
+                        config.auto_commit = value.parse().unwrap_or(false);
+                        save_config(&config)?;
+                        println!("auto_commit set to: {}", config.auto_commit);
+                    }
+                    ConfigAction::CommitAfterBranch { value } => {
+                        config.commit_after_branch = value.parse().unwrap_or(false);
+                        save_config(&config)?;
+                        println!("commit_after_branch set to: {}", config.commit_after_branch);
+                    }
+                    ConfigAction::Model { value } => {
+                        config.model = value;
+                        save_config(&config)?;
+                        println!("model set to: {}", config.model);
+                    }
+                    ConfigAction::Verbose { value } => {
+                        config.verbose = value.parse().unwrap_or(false);
+                        save_config(&config)?;
+                        println!("verbose set to: {}", config.verbose);
+                    }
+                }
+                return Ok(());
             }
-            ConfigAction::AutoCommit { value } => {
-                config.auto_commit = value.parse().unwrap_or(false);
-                save_config(&config)?;
-                println!("auto_commit set to: {}", config.auto_commit);
-            }
-            ConfigAction::CommitAfterBranch { value } => {
-                config.commit_after_branch = value.parse().unwrap_or(false);
-                save_config(&config)?;
-                println!("commit_after_branch set to: {}", config.commit_after_branch);
-            }
-            ConfigAction::Model { value } => {
-                config.model = value;
-                save_config(&config)?;
-                println!("model set to: {}", config.model);
-            }
-            ConfigAction::Verbose { value } => {
-                config.verbose = value.parse().unwrap_or(false);
-                save_config(&config)?;
-                println!("verbose set to: {}", config.verbose);
+            Commands::Pr(args) => {
+                return handle_pr_command(args, &config).await;
             }
         }
-        return Ok(());
     }
 
     // Get API key
