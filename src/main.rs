@@ -535,7 +535,7 @@ async fn get_upstream_remote() -> Result<Option<String>, Box<dyn std::error::Err
     Ok(None)
 }
 
-async fn ensure_branch_pushed(branch: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn branch_needs_push(branch: &str) -> bool {
     // Check if branch has upstream tracking
     let output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", &format!("{}@{{u}}", branch)])
@@ -543,22 +543,135 @@ async fn ensure_branch_pushed(branch: &str) -> Result<(), Box<dyn std::error::Er
         .await;
 
     match output {
-        Ok(o) if o.status.success() => Ok(()), // Already has upstream
-        _ => {
-            // Push with -u to set upstream
-            println!("— Pushing branch to origin...");
-            let push_output = Command::new("git")
-                .args(["push", "-u", "origin", branch])
+        Ok(o) if o.status.success() => {
+            // Has upstream, check if we're ahead
+            let status = Command::new("git")
+                .args(["status", "-sb"])
                 .output()
-                .await?;
-
-            if !push_output.status.success() {
-                let stderr = String::from_utf8_lossy(&push_output.stderr);
-                return Err(format!("Failed to push branch: {}", stderr).into());
+                .await;
+            if let Ok(s) = status {
+                let out = String::from_utf8_lossy(&s.stdout);
+                out.contains("ahead")
+            } else {
+                false
             }
-            Ok(())
+        }
+        _ => true, // No upstream, needs push
+    }
+}
+
+struct UncommittedChanges {
+    staged: Vec<String>,
+    unstaged: Vec<String>,
+}
+
+async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err("Failed to get git status".into());
+    }
+
+    let status = String::from_utf8_lossy(&output.stdout);
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+
+    for line in status.lines() {
+        if line.len() < 3 {
+            continue;
+        }
+        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let file = &line[3..];
+
+        // Staged changes (index has modifications)
+        if index_status != ' ' && index_status != '?' {
+            staged.push(format!("  {} {}", index_status, file));
+        }
+        // Unstaged changes (worktree has modifications) or untracked
+        if worktree_status != ' ' {
+            let status_char = if worktree_status == '?' { '?' } else { worktree_status };
+            unstaged.push(format!("  {} {}", status_char, file));
         }
     }
+
+    Ok(UncommittedChanges { staged, unstaged })
+}
+
+enum UncommittedAction {
+    Commit,
+    Skip,
+    Quit,
+}
+
+fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAction {
+    println!();
+    println!("⚠ Uncommitted changes won't be included in this PR");
+    println!();
+
+    if !changes.staged.is_empty() {
+        println!("Staged:");
+        for file in &changes.staged {
+            println!("{}", file);
+        }
+        println!();
+    }
+
+    if !changes.unstaged.is_empty() {
+        println!("Unstaged:");
+        for file in &changes.unstaged {
+            println!("{}", file);
+        }
+        println!();
+    }
+
+    loop {
+        print!("[c]ommit first  [s]kip  [q]uit: ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim().to_lowercase().as_str() {
+            "c" | "commit" => return UncommittedAction::Commit,
+            "s" | "skip" => return UncommittedAction::Skip,
+            "q" | "quit" => return UncommittedAction::Quit,
+            _ => println!("Please enter c, s, or q"),
+        }
+    }
+}
+
+async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !branch_needs_push(branch).await {
+        return Ok(());
+    }
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+            .template("Pushing branch to origin {spinner}")
+            .unwrap(),
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let push_output = Command::new("git")
+        .args(["push", "-u", "origin", branch])
+        .output()
+        .await?;
+
+    spinner.finish_and_clear();
+
+    if !push_output.status.success() {
+        let stderr = String::from_utf8_lossy(&push_output.stderr);
+        return Err(format!("Failed to push branch: {}", stderr).into());
+    }
+
+    println!("— Pushed branch to origin");
+    Ok(())
 }
 
 async fn get_branch_diff(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
@@ -1533,6 +1646,69 @@ async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn 
         eprintln!("— Current branch: {}", current_branch);
     }
 
+    // Check for uncommitted changes
+    let uncommitted = get_uncommitted_changes().await?;
+    if !uncommitted.staged.is_empty() || !uncommitted.unstaged.is_empty() {
+        match prompt_uncommitted_changes(&uncommitted) {
+            UncommittedAction::Commit => {
+                // Stage all and run commit flow
+                stage_all_changes().await?;
+
+                let commit_diff = get_git_diff(true, verbose).await?;
+                let commit_files = get_staged_files(verbose).await?;
+
+                if commit_diff.trim().is_empty() {
+                    println!("— No changes to commit");
+                } else {
+                    let client = Client::builder().build()?;
+
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner()
+                            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                            .template("Generating commit message {spinner}")
+                            .unwrap(),
+                    );
+                    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+                    let commit_msg = stream_commit_message(
+                        &client,
+                        &api_key,
+                        model,
+                        &commit_diff,
+                        &commit_files,
+                        &spinner,
+                        verbose,
+                    )
+                    .await?;
+
+                    if !commit_msg.is_empty() {
+                        match prompt_commit(&commit_msg, false) {
+                            CommitAction::Commit(msg) => {
+                                run_git_commit(&msg).await?;
+                                println!("— Committed");
+                                println!();
+                            }
+                            CommitAction::Cancel => {
+                                println!("— Commit cancelled, continuing with PR...");
+                                println!();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            UncommittedAction::Skip => {
+                println!("— Skipping uncommitted changes");
+                println!();
+            }
+            UncommittedAction::Quit => {
+                println!("— Cancelled");
+                std::process::exit(0);
+            }
+        }
+    }
+
     // Get commits on this branch
     let commits = get_branch_commits(&base_branch).await?;
     if commits.is_empty() {
@@ -1543,11 +1719,6 @@ async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn 
 
     if verbose {
         eprintln!("— Found {} commits on branch", commits.len());
-    }
-
-    // Ensure branch is pushed
-    if !args.dry_run {
-        ensure_branch_pushed(&current_branch).await?;
     }
 
     // Get diff and file list
@@ -1596,14 +1767,18 @@ async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn 
     }
 
     if args.yes {
+        // Push branch if needed
+        push_branch_with_spinner(&current_branch).await?;
+
         let url = create_pr(&title, &body, args.draft).await?;
-        println!();
         println!("— PR created: {}", url);
     } else {
         match prompt_pr(&title, &body) {
             PrAction::Create(final_title, final_body) => {
+                // Push branch if needed
+                push_branch_with_spinner(&current_branch).await?;
+
                 let url = create_pr(&final_title, &final_body, args.draft).await?;
-                println!();
                 println!("— PR created: {}", url);
             }
             PrAction::Cancel => {
