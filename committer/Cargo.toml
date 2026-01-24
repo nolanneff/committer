@@ -1,0 +1,9 @@
+[package]
+name = "committer"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI tool to analyze git diffs and provide summaries"
+authors = ["committer"]
+
+[dependencies]
+colored = "2.1"
