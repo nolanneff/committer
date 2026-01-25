@@ -16,6 +16,8 @@
 
 A fast, lightweight CLI that automates your git workflow. Generate commit messages, detect branch misalignment, create feature branches, and open pull requests—all powered by AI.
 
+Most AI commit tools are built on Node.js or Python, adding noticeable startup delay to every invocation. Committer is a native binary—it launches instantly and streams responses in real-time, so you're never waiting on the tool itself.
+
 ---
 
 ## What It Does
@@ -151,6 +153,15 @@ committer config verbose true      # Enable debug output
 - Git
 - [OpenRouter API key](https://openrouter.ai/keys) (free tier available)
 - [GitHub CLI](https://cli.github.com/) (only for `committer pr`)
+
+## Roadmap
+
+This project is under active development. Planned features:
+
+- [ ] Custom commit message formatting (templates, scopes, styles)
+- [ ] More configuration options
+
+Contributions and feedback welcome.
 
 ## License
 
