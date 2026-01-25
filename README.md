@@ -16,6 +16,8 @@
 
 A fast, lightweight CLI that automates your git workflow. Generate commit messages, detect branch misalignment, create feature branches, and open pull requests—all powered by AI.
 
+---
+
 ## What It Does
 
 ### Commit Messages
