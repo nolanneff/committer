@@ -7,6 +7,7 @@
 [![Crates.io](https://img.shields.io/crates/v/committer.svg)](https://crates.io/crates/committer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-blue)](https://github.com/nolanneff/committer/releases)
 
 [Installation](#installation) • [Quick Start](#quick-start) • [Usage](#usage) • [Configuration](#configuration)
 
