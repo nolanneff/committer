@@ -4,8 +4,8 @@
 Output pr.gif
 
 Set FontSize 20
-Set Width 900
-Set Height 400
+Set Width 1300
+Set Height 530
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 50ms
 

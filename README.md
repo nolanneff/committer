@@ -22,14 +22,6 @@ $ committer
 ✓ feat(auth): add JWT token refresh on expiration
 ```
 
-## Why Committer?
-
-- **Beyond commit messages** — Also handles branch creation and pull requests
-- **Branch intelligence** — Detects when changes don't belong on your current branch
-- **Fast** — Written in Rust, starts instantly, streams responses in real-time
-- **Zero config** — Works immediately after install
-- **Fully automatic or interactive** — Your choice
-
 ## What It Does
 
 ### Commit Messages
@@ -53,6 +45,7 @@ Generate PR titles and descriptions from your commits, then create the PR:
 ## Features
 
 - **Conventional commits** — Properly formatted `type(scope): description` messages
+- **Fast** — Starts instantly, streams responses in real-time
 - **Smart diff filtering** — Automatically excludes lock files, build artifacts, minified code
 - **Large diff handling** — Intelligently truncates at 300KB to stay within limits
 - **Any model** — Use Claude, GPT-4, Gemini, Llama, or any model on OpenRouter
@@ -151,47 +144,11 @@ committer config verbose true      # Enable debug output
 
 - `OPENROUTER_API_KEY` — API key (required)
 
-## CLI Reference
-
-### `committer` (commit)
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--yes` | `-y` | Commit without confirmation |
-| `--dry-run` | `-d` | Preview message only |
-| `--all` | `-a` | Stage all changes first |
-| `--model` | `-m` | Override default model |
-| `--branch` | `-b` | Analyze branch alignment |
-| `--auto-branch` | `-B` | Auto-create feature branches |
-| `--verbose` | `-v` | Show debug output |
-
-### `committer pr`
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--yes` | `-y` | Create without confirmation |
-| `--dry-run` | `-d` | Preview PR only |
-| `--draft` | `-D` | Create as draft |
-| `--base` | `-b` | Override base branch |
-| `--model` | `-m` | Override default model |
-| `--verbose` | `-v` | Show debug output |
-
-## How it works
-
-1. **Reads staged diff** — Filters out noise (lock files, build artifacts, minified code)
-2. **Sends to LLM** — Streams your diff to OpenRouter with commit conventions
-3. **Returns message** — Displays the result, optionally prompts for confirmation
-4. **Commits** — Runs `git commit` with the generated message
-
-Startup is instant—no interpreter, no JIT warmup. Use `--verbose` to see exactly what's happening.
-
 ## Requirements
 
 - Git
 - [OpenRouter API key](https://openrouter.ai/keys) (free tier available)
 - [GitHub CLI](https://cli.github.com/) (only for `committer pr`)
-
-No Node.js. No Python. No Docker. Just a single binary.
 
 ## License
 
