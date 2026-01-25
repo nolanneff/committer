@@ -17,7 +17,7 @@
 //! committer pr --dry-run    # Preview without creating
 //! ```
 
-use console::style;
+use console::{style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use tokio::process::Command;
@@ -222,6 +222,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                     println!("{} No changes to commit", style("→").dim());
                 } else {
                     let client = Client::builder().build()?;
+                    let term = Term::stdout();
+                    let _ = term.hide_cursor();
 
                     let spinner = ProgressBar::new_spinner();
                     spinner.set_style(
@@ -242,6 +244,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                         verbose,
                     )
                     .await?;
+
+                    let _ = term.show_cursor();
 
                     if !commit_msg.is_empty() {
                         match prompt_commit(&commit_msg, false) {
@@ -298,6 +302,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
 
     // Create HTTP client
     let client = Client::builder().build()?;
+    let term = Term::stdout();
+    let _ = term.hide_cursor();
 
     // Stream PR content with spinner
     let spinner = ProgressBar::new_spinner();
@@ -321,6 +327,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     )
     .await?;
 
+    let _ = term.show_cursor();
+
     if args.dry_run {
         println!();
         println!("{} Dry run complete (PR not created)", style("✓").green());
@@ -330,7 +338,6 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     if args.yes {
         // Push branch if needed
         push_branch_with_spinner(&current_branch).await?;
-
         let url = create_pr(&title, &body, args.draft).await?;
         println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
     } else {
@@ -338,7 +345,6 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
             PrAction::Create(final_title, final_body) => {
                 // Push branch if needed
                 push_branch_with_spinner(&current_branch).await?;
-
                 let url = create_pr(&final_title, &final_body, args.draft).await?;
                 println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
             }

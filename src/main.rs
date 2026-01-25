@@ -28,7 +28,7 @@
 //! ```
 
 use clap::Parser;
-use console::style;
+use console::{style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::io::Write;
@@ -172,6 +172,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder().build()?;
 
     // Stream the commit message with spinner
+    let term = Term::stdout();
+    let _ = term.hide_cursor();
+
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
@@ -187,6 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message_result =
         stream_commit_message(&client, &api_key, model, &diff, &files, &spinner, verbose).await;
 
+    let _ = term.show_cursor();
     let message = message_result?;
 
     if message.is_empty() {
@@ -201,6 +205,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cli.branch || cli.auto_branch {
         let current_branch = get_current_branch().await?;
         let recent_commits = get_recent_commits(5).await.unwrap_or_default();
+
+        let _ = term.hide_cursor();
 
         let branch_spinner = ProgressBar::new_spinner();
         branch_spinner.set_style(
@@ -223,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
         branch_spinner.finish_and_clear();
+        let _ = term.show_cursor();
 
         if verbose {
             eprintln!("[Branch Analysis]: {}\n", analysis.reason);
@@ -284,6 +291,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 CommitAction::CreateBranch(msg) => {
                     current_message = msg;
 
+                    let _ = term.hide_cursor();
+
                     let branch_spinner = ProgressBar::new_spinner();
                     branch_spinner.set_style(
                         ProgressStyle::default_spinner()
@@ -306,6 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
 
                     branch_spinner.finish_and_clear();
+                    let _ = term.show_cursor();
 
                     let current_branch = get_current_branch().await.unwrap_or_default();
                     println!("{} Suggested branch: {}", style("🌿").green(), style(&suggested).green());

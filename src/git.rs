@@ -21,7 +21,7 @@
 //! Diffs are truncated at [`MAX_DIFF_CHARS`] (300KB) to stay within LLM
 //! context limits while preserving file headers for context.
 
-use console::style;
+use console::{style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::Command;
 
@@ -494,6 +494,9 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
         return Ok(());
     }
 
+    let term = Term::stdout();
+    let _ = term.hide_cursor();
+
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
@@ -509,6 +512,7 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
         .await?;
 
     spinner.finish_and_clear();
+    let _ = term.show_cursor();
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
