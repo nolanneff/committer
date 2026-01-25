@@ -210,6 +210,7 @@ PR title and description:"#,
 /// Streams PR title and body generation from the LLM.
 ///
 /// Returns (title, body) tuple. Output is printed token-by-token as it streams.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_pr_content(
     client: &Client,
     api_key: &str,
