@@ -17,7 +17,6 @@
 //! committer pr --dry-run    # Preview without creating
 //! ```
 
-use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use tokio::process::Command;
@@ -174,8 +173,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     let api_key = match get_api_key() {
         Some(key) => key,
         None => {
-            println!("{} No API key found", style("✗").red());
-            println!("  {} Set OPENROUTER_API_KEY environment variable", style("→").dim());
+            println!("— No API key found");
+            println!("  Set OPENROUTER_API_KEY environment variable");
             std::process::exit(1);
         }
     };
@@ -190,8 +189,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     if PROTECTED_BRANCHES.contains(&current_branch.as_str()) {
         // Check for upstream remote (fork workflow)
         if get_upstream_remote().await?.is_none() {
-            println!("{} Cannot create PR from protected branch '{}'", style("✗").red(), style(&current_branch).yellow());
-            println!("  {} Create a feature branch first: git checkout -b feat/your-feature", style("→").dim());
+            println!("— Cannot create PR from protected branch '{}'", current_branch);
+            println!("  Create a feature branch first: git checkout -b feat/your-feature");
             std::process::exit(1);
         }
     }
@@ -219,7 +218,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                 let commit_files = get_staged_files(verbose).await?;
 
                 if commit_diff.trim().is_empty() {
-                    println!("{} No changes to commit", style("→").dim());
+                    println!("— No changes to commit");
                 } else {
                     let client = Client::builder().build()?;
 
@@ -227,7 +226,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                     spinner.set_style(
                         ProgressStyle::default_spinner()
                             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                            .template("{spinner:.cyan} Generating commit message...")
+                            .template("Generating commit message {spinner}")
                             .unwrap(),
                     );
                     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -247,11 +246,11 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                         match prompt_commit(&commit_msg, false) {
                             CommitAction::Commit(msg) => {
                                 run_git_commit(&msg).await?;
-                                println!("{} Committed", style("✓").green());
+                                println!("— Committed");
                                 println!();
                             }
                             CommitAction::Cancel => {
-                                println!("{} Commit cancelled, continuing with PR...", style("→").dim());
+                                println!("— Commit cancelled, continuing with PR...");
                                 println!();
                             }
                             _ => {}
@@ -260,11 +259,11 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                 }
             }
             UncommittedAction::Skip => {
-                println!("{} Skipping uncommitted changes", style("→").dim());
+                println!("— Skipping uncommitted changes");
                 println!();
             }
             UncommittedAction::Quit => {
-                println!("{} Cancelled", style("—").dim());
+                println!("— Cancelled");
                 std::process::exit(0);
             }
         }
@@ -273,8 +272,8 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     // Get commits on this branch
     let commits = get_branch_commits(&base_branch).await?;
     if commits.is_empty() {
-        println!("{} No commits found between '{}' and '{}'", style("✗").red(), style(&base_branch).dim(), style(&current_branch).cyan());
-        println!("  {} Make some commits first, or check your base branch", style("→").dim());
+        println!("— No commits found between '{}' and '{}'", base_branch, current_branch);
+        println!("  Make some commits first, or check your base branch");
         std::process::exit(1);
     }
 
@@ -292,7 +291,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     let files = files_result?;
 
     if diff.trim().is_empty() {
-        println!("{} No changes found between '{}' and '{}'", style("✗").red(), style(&base_branch).dim(), style(&current_branch).cyan());
+        println!("— No changes found between '{}' and '{}'", base_branch, current_branch);
         std::process::exit(1);
     }
 
@@ -304,7 +303,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     spinner.set_style(
         ProgressStyle::default_spinner()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-            .template("{spinner:.cyan} Generating PR content...")
+            .template("Generating PR content {spinner}")
             .unwrap(),
     );
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -323,7 +322,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
 
     if args.dry_run {
         println!();
-        println!("{} Dry run complete (PR not created)", style("✓").green());
+        println!("— Dry run complete (PR not created)");
         return Ok(());
     }
 
@@ -332,7 +331,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
         push_branch_with_spinner(&current_branch).await?;
 
         let url = create_pr(&title, &body, args.draft).await?;
-        println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
+        println!("— PR created: {}", url);
     } else {
         match prompt_pr(&title, &body) {
             PrAction::Create(final_title, final_body) => {
@@ -340,10 +339,10 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                 push_branch_with_spinner(&current_branch).await?;
 
                 let url = create_pr(&final_title, &final_body, args.draft).await?;
-                println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
+                println!("— PR created: {}", url);
             }
             PrAction::Cancel => {
-                println!("{} Cancelled", style("—").dim());
+                println!("— Cancelled");
             }
         }
     }

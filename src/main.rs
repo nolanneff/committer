@@ -28,7 +28,6 @@
 //! ```
 
 use clap::Parser;
-use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::io::Write;
@@ -71,46 +70,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Config { action } => {
                 match action {
                     ConfigAction::Show => {
-                        println!("{}", style("Configuration").bold());
-                        println!("  {} {}", style("file:").dim(), config_path().display());
-                        println!();
-                        let bool_style = |v: bool| if v { style("true").green() } else { style("false").dim() };
-                        println!("  {} {}", style("auto_commit:").cyan(), bool_style(config.auto_commit));
-                        println!("  {} {}", style("commit_after_branch:").cyan(), bool_style(config.commit_after_branch));
-                        println!("  {} {}", style("verbose:").cyan(), bool_style(config.verbose));
-                        println!("  {} {}", style("model:").cyan(), style(&config.model).yellow());
+                        println!("Config file: {}", config_path().display());
+                        println!("auto_commit: {}", config.auto_commit);
+                        println!("commit_after_branch: {}", config.commit_after_branch);
+                        println!("model: {}", config.model);
+                        println!("verbose: {}", config.verbose);
                         println!(
-                            "  {} {}",
-                            style("api_key:").cyan(),
+                            "api_key: {}",
                             if std::env::var("OPENROUTER_API_KEY").is_ok() {
-                                style("[set via env]").green()
+                                "[set via OPENROUTER_API_KEY env var]"
                             } else {
-                                style("[not set]").red()
+                                "[not set]"
                             }
                         );
                     }
                     ConfigAction::AutoCommit { value } => {
                         config.auto_commit = value.parse().unwrap_or(false);
                         save_config(&config)?;
-                        let val_style = if config.auto_commit { style("true").green() } else { style("false").dim() };
-                        println!("{} {} set to {}", style("✓").green(), style("auto_commit").cyan(), val_style);
+                        println!("auto_commit set to: {}", config.auto_commit);
                     }
                     ConfigAction::CommitAfterBranch { value } => {
                         config.commit_after_branch = value.parse().unwrap_or(false);
                         save_config(&config)?;
-                        let val_style = if config.commit_after_branch { style("true").green() } else { style("false").dim() };
-                        println!("{} {} set to {}", style("✓").green(), style("commit_after_branch").cyan(), val_style);
+                        println!("commit_after_branch set to: {}", config.commit_after_branch);
                     }
                     ConfigAction::Model { value } => {
                         config.model = value;
                         save_config(&config)?;
-                        println!("{} {} set to {}", style("✓").green(), style("model").cyan(), style(&config.model).yellow());
+                        println!("model set to: {}", config.model);
                     }
                     ConfigAction::Verbose { value } => {
                         config.verbose = value.parse().unwrap_or(false);
                         save_config(&config)?;
-                        let val_style = if config.verbose { style("true").green() } else { style("false").dim() };
-                        println!("{} {} set to {}", style("✓").green(), style("verbose").cyan(), val_style);
+                        println!("verbose set to: {}", config.verbose);
                     }
                 }
                 return Ok(());
@@ -125,8 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = match get_api_key() {
         Some(key) => key,
         None => {
-            println!("{} No API key found", style("✗").red());
-            println!("  {} Set OPENROUTER_API_KEY environment variable", style("→").dim());
+            println!("— No API key found");
+            println!("  Set OPENROUTER_API_KEY environment variable");
             std::process::exit(1);
         }
     };
@@ -156,11 +148,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let status = String::from_utf8_lossy(&status_output.stdout);
 
         if status.trim().is_empty() {
-            println!("{} Nothing to commit", style("✓").green());
+            println!("— Nothing to commit");
             std::process::exit(0);
         } else {
-            println!("{} No staged changes", style("⚠").yellow());
-            println!("  {} Use 'git add' or --all", style("→").dim());
+            println!("— No staged changes");
+            println!("  Use 'git add' or --all");
             std::process::exit(1);
         }
     }
@@ -176,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     spinner.set_style(
         ProgressStyle::default_spinner()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-            .template("{spinner:.cyan} Generating commit message...")
+            .template("Generating commit message {spinner}")
             .unwrap(),
     );
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -191,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if message.is_empty() {
         spinner.finish_and_clear();
-        println!("{} Empty commit message generated", style("✗").red());
+        println!("— Error: empty commit message generated");
         std::process::exit(1);
     }
 
@@ -206,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         branch_spinner.set_style(
             ProgressStyle::default_spinner()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                .template("{spinner:.cyan} Analyzing branch alignment...")
+                .template("Analyzing branch alignment {spinner}")
                 .unwrap(),
         );
         branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
@@ -235,11 +227,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if cli.auto_branch || cli.yes {
                 println!(
-                    "{} Branch '{}' → '{}' ({})",
-                    style("→").cyan(),
-                    style(&current_branch).dim(),
-                    style(&suggested).green(),
-                    style(&analysis.reason).dim()
+                    "— Branch '{}' → '{}' ({})",
+                    current_branch, suggested, analysis.reason
                 );
                 create_and_switch_branch(&suggested).await?;
                 branch_already_handled = true;
@@ -247,11 +236,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match prompt_branch_action(&current_branch, &suggested, &analysis.reason, true) {
                     BranchAction::Create(name) => {
                         create_and_switch_branch(&name).await?;
-                        println!("{} Switched to branch '{}'", style("✓").green(), style(&name).green());
+                        println!("— Switched to branch '{}'", name);
                         branch_already_handled = true;
                     }
                     BranchAction::Skip => {
-                        println!("{} Continuing on '{}'", style("→").dim(), style(&current_branch).dim());
+                        println!("— Continuing on '{}'", current_branch);
                         branch_already_handled = true;
                     }
                 }
@@ -265,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if cli.yes || config.auto_commit {
         run_git_commit(&message).await?;
-        println!("{} Committed", style("✓").green());
+        println!("— Committed");
     } else {
         let mut show_branch_option = !branch_already_handled;
         let mut current_message = message.clone();
@@ -274,11 +263,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match prompt_commit(&current_message, show_branch_option) {
                 CommitAction::Commit(final_message) => {
                     run_git_commit(&final_message).await?;
-                    println!("{} Committed", style("✓").green());
+                    println!("— Committed");
                     break;
                 }
                 CommitAction::Cancel => {
-                    println!("{} Cancelled", style("—").dim());
+                    println!("— Cancelled");
                     break;
                 }
                 CommitAction::CreateBranch(msg) => {
@@ -288,7 +277,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     branch_spinner.set_style(
                         ProgressStyle::default_spinner()
                             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                            .template("{spinner:.cyan} Generating branch name...")
+                            .template("Generating branch name {spinner}")
                             .unwrap(),
                     );
                     branch_spinner.enable_steady_tick(std::time::Duration::from_millis(120));
@@ -308,18 +297,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     branch_spinner.finish_and_clear();
 
                     let current_branch = get_current_branch().await.unwrap_or_default();
-                    println!("{} Suggested branch: {}", style("🌿").green(), style(&suggested).green());
+                    println!("🌿 Suggested branch: {}", suggested);
                     println!();
 
                     let branch_created =
                         match prompt_branch_action(&current_branch, &suggested, "", false) {
                             BranchAction::Create(name) => {
                                 create_and_switch_branch(&name).await?;
-                                println!("{} Switched to branch '{}'", style("✓").green(), style(&name).green());
+                                println!("— Switched to branch '{}'", name);
                                 true
                             }
                             BranchAction::Skip => {
-                                println!("{} Continuing on '{}'", style("→").dim(), style(&current_branch).dim());
+                                println!("— Continuing on '{}'", current_branch);
                                 false
                             }
                         };
@@ -327,7 +316,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Auto-commit if config enabled and branch was created
                     if config.commit_after_branch && branch_created {
                         run_git_commit(&current_message).await?;
-                        println!("{} Committed", style("✓").green());
+                        println!("— Committed");
                         break;
                     }
 
