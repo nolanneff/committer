@@ -504,22 +504,137 @@ async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn get_default_base_branch() -> Result<String, Box<dyn std::error::Error>> {
-    let output = Command::new("gh")
-        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+/// Check if a branch exists and has a merge base with HEAD
+async fn branch_has_merge_base(branch: &str) -> bool {
+    let output = Command::new("git")
+        .args(["merge-base", branch, "HEAD"])
         .output()
-        .await?;
+        .await;
+
+    matches!(output, Ok(o) if o.status.success())
+}
+
+/// Try to get the default branch from the cached remote HEAD reference
+async fn get_cached_remote_head() -> Option<String> {
+    let output = Command::new("git")
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output()
+        .await
+        .ok()?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to get default branch: {}", stderr).into());
+        return None;
     }
 
-    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if branch.is_empty() {
-        return Err("Could not determine default branch".into());
+    let full_ref = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // refs/remotes/origin/main -> main
+    full_ref.strip_prefix("refs/remotes/origin/").map(|s| s.to_string())
+}
+
+/// Query the remote directly for its default branch (works with any git remote)
+async fn get_remote_default_branch() -> Option<String> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--symref", "origin", "HEAD"])
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
     }
-    Ok(branch)
+
+    // Output format: "ref: refs/heads/main\tHEAD\n..."
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.starts_with("ref: refs/heads/") && line.contains("HEAD") {
+            // Extract branch name between "ref: refs/heads/" and the tab
+            if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
+                if let Some(branch) = rest.split('\t').next() {
+                    return Some(branch.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
+    // Strategy 1: Try gh CLI (works for GitHub repos)
+    let gh_output = Command::new("gh")
+        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+        .output()
+        .await;
+
+    if let Ok(output) = gh_output {
+        if output.status.success() {
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !branch.is_empty() && branch_has_merge_base(&branch).await {
+                if verbose {
+                    eprintln!("— Base branch detection: gh CLI (GitHub API)");
+                }
+                return Ok(branch);
+            }
+            // gh returned a branch but no merge base - try with origin/ prefix
+            let origin_branch = format!("origin/{}", branch);
+            if branch_has_merge_base(&origin_branch).await {
+                if verbose {
+                    eprintln!("— Base branch detection: gh CLI (GitHub API, using origin/)");
+                }
+                return Ok(origin_branch);
+            }
+        }
+    }
+
+    // Strategy 2: Try cached git symbolic-ref for origin/HEAD
+    if let Some(branch) = get_cached_remote_head().await {
+        if branch_has_merge_base(&branch).await {
+            if verbose {
+                eprintln!("— Base branch detection: cached origin/HEAD ref");
+            }
+            return Ok(branch);
+        }
+        let origin_branch = format!("origin/{}", branch);
+        if branch_has_merge_base(&origin_branch).await {
+            if verbose {
+                eprintln!("— Base branch detection: cached origin/HEAD ref (using origin/)");
+            }
+            return Ok(origin_branch);
+        }
+    }
+
+    // Strategy 3: Query remote directly (works for any git host)
+    if let Some(branch) = get_remote_default_branch().await {
+        if branch_has_merge_base(&branch).await {
+            if verbose {
+                eprintln!("— Base branch detection: git ls-remote (queried remote)");
+            }
+            return Ok(branch);
+        }
+        let origin_branch = format!("origin/{}", branch);
+        if branch_has_merge_base(&origin_branch).await {
+            if verbose {
+                eprintln!("— Base branch detection: git ls-remote (queried remote, using origin/)");
+            }
+            return Ok(origin_branch);
+        }
+    }
+
+    // Strategy 4: Last resort - check common default branch names
+    let common_branches = [
+        "origin/main", "origin/master", "origin/mainline", "origin/develop",
+        "main", "master", "mainline", "develop",
+    ];
+
+    for branch in common_branches {
+        if branch_has_merge_base(branch).await {
+            if verbose {
+                eprintln!("— Base branch detection: fallback (checked common names)");
+            }
+            return Ok(branch.to_string());
+        }
+    }
+
+    Err("Could not determine default base branch. Use --base <branch> to specify manually.".into())
 }
 
 async fn get_upstream_remote() -> Result<Option<String>, Box<dyn std::error::Error>> {
@@ -1638,7 +1753,7 @@ async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn 
     // Determine base branch
     let base_branch = match &args.base {
         Some(base) => base.clone(),
-        None => get_default_base_branch().await?,
+        None => get_default_base_branch(verbose).await?,
     };
 
     if verbose {
