@@ -33,7 +33,10 @@ pub enum UncommittedAction {
 /// Displays staged and unstaged files, then asks user to commit, skip, or quit.
 pub fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAction {
     println!();
-    println!("{} Uncommitted changes won't be included in this PR", style("⚠").yellow());
+    println!(
+        "{} Uncommitted changes won't be included in this PR",
+        style("⚠").yellow()
+    );
     println!();
 
     if !changes.staged.is_empty() {
@@ -95,8 +98,16 @@ pub fn prompt_branch_action(
 
     let mut current_suggestion = suggested.to_string();
 
-    println!("  {} Create branch '{}'", style("[y]").cyan().bold(), style(&current_suggestion).green());
-    println!("  {} Stay on '{}'", style("[n]").cyan().bold(), style(current).dim());
+    println!(
+        "  {} Create branch '{}'",
+        style("[y]").cyan().bold(),
+        style(&current_suggestion).green()
+    );
+    println!(
+        "  {} Stay on '{}'",
+        style("[n]").cyan().bold(),
+        style(current).dim()
+    );
     println!("  {} Edit branch name", style("[e]").cyan().bold());
     println!();
 
@@ -119,8 +130,16 @@ pub fn prompt_branch_action(
                 current_suggestion = edited.clone();
                 // Reprint menu with updated branch name
                 println!();
-                println!("  {} Create branch '{}'", style("[y]").cyan().bold(), style(&current_suggestion).green());
-                println!("  {} Stay on '{}'", style("[n]").cyan().bold(), style(current).dim());
+                println!(
+                    "  {} Create branch '{}'",
+                    style("[y]").cyan().bold(),
+                    style(&current_suggestion).green()
+                );
+                println!(
+                    "  {} Stay on '{}'",
+                    style("[n]").cyan().bold(),
+                    style(current).dim()
+                );
                 println!("  {} Edit branch name", style("[e]").cyan().bold());
                 println!();
             }

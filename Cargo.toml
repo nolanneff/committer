@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Fast AI-powered git commit message generator"
 license = "MIT"
+repository = "https://github.com/nolanneff/committer"
+homepage = "https://github.com/nolanneff/committer"
+keywords = ["git", "commit", "ai", "cli", "openrouter"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "macros", "process", "io-std"] }

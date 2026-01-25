@@ -383,7 +383,8 @@ pub async fn stream_commit_message(
         chunk_count += 1;
 
         if verbose {
-            eprintln!("[Stream] Chunk {}: {} bytes, preview: {:?}",
+            eprintln!(
+                "[Stream] Chunk {}: {} bytes, preview: {:?}",
                 chunk_count,
                 chunk.len(),
                 text.chars().take(100).collect::<String>()
@@ -422,7 +423,11 @@ pub async fn stream_commit_message(
                     }
                     Err(e) => {
                         if verbose {
-                            eprintln!("[Stream] Parse error: {} for data: {:?}", e, data.chars().take(100).collect::<String>());
+                            eprintln!(
+                                "[Stream] Parse error: {} for data: {:?}",
+                                e,
+                                data.chars().take(100).collect::<String>()
+                            );
                         }
                     }
                 }
@@ -431,15 +436,22 @@ pub async fn stream_commit_message(
     }
 
     if verbose {
-        eprintln!("[Stream] Stream ended. Total chunks: {}, SSE lines: {}, message length: {}",
-            chunk_count, sse_lines_found, full_message.len());
+        eprintln!(
+            "[Stream] Stream ended. Total chunks: {}, SSE lines: {}, message length: {}",
+            chunk_count,
+            sse_lines_found,
+            full_message.len()
+        );
     }
 
     // Fallback: if streaming produced nothing, try parsing as non-streaming response
     if full_message.is_empty() && !raw_response.is_empty() {
         if verbose {
             eprintln!("[Stream] No streaming content, trying non-streaming fallback...");
-            eprintln!("[Stream] Raw response preview: {:?}", &raw_response.chars().take(300).collect::<String>());
+            eprintln!(
+                "[Stream] Raw response preview: {:?}",
+                &raw_response.chars().take(300).collect::<String>()
+            );
         }
 
         spinner.disable_steady_tick();

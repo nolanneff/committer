@@ -33,8 +33,7 @@ use crate::git::{
     run_git_commit, stage_all_changes,
 };
 use crate::ui::{
-    prompt_commit, prompt_pr, prompt_uncommitted_changes, CommitAction, PrAction,
-    UncommittedAction,
+    prompt_commit, prompt_pr, prompt_uncommitted_changes, CommitAction, PrAction, UncommittedAction,
 };
 
 /// Checks if the GitHub CLI (`gh`) is installed.
@@ -43,12 +42,10 @@ pub async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
 
     match output {
         Ok(o) if o.status.success() => Ok(()),
-        _ => {
-            Err("GitHub CLI (gh) is not installed.\n\
+        _ => Err("GitHub CLI (gh) is not installed.\n\
                  Install it from: https://cli.github.com/\n\
                  Then run: gh auth login"
-                .into())
-        }
+            .into()),
     }
 }
 
@@ -59,7 +56,14 @@ pub async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
 pub async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     // Strategy 1: Try gh CLI (works for GitHub repos)
     let gh_output = Command::new("gh")
-        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+        .args([
+            "repo",
+            "view",
+            "--json",
+            "defaultBranchRef",
+            "-q",
+            ".defaultBranchRef.name",
+        ])
         .output()
         .await;
 
@@ -119,8 +123,14 @@ pub async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn st
 
     // Strategy 4: Last resort - check common default branch names
     let common_branches = [
-        "origin/main", "origin/master", "origin/mainline", "origin/develop",
-        "main", "master", "mainline", "develop",
+        "origin/main",
+        "origin/master",
+        "origin/mainline",
+        "origin/develop",
+        "main",
+        "master",
+        "mainline",
+        "develop",
     ];
 
     for branch in common_branches {
@@ -138,7 +148,11 @@ pub async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn st
 /// Creates a pull request via GitHub CLI.
 ///
 /// Returns the PR URL on success.
-pub async fn create_pr(title: &str, body: &str, draft: bool) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn create_pr(
+    title: &str,
+    body: &str,
+    draft: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut args = vec!["pr", "create", "--title", title, "--body", body];
     if draft {
         args.push("--draft");
@@ -166,7 +180,10 @@ pub async fn create_pr(title: &str, body: &str, draft: bool) -> Result<String, B
 /// Main handler for the `committer pr` subcommand.
 ///
 /// Orchestrates the full PR creation workflow.
-pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_pr_command(
+    args: PrArgs,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Check gh CLI is installed
     check_gh_installed().await?;
 
@@ -175,7 +192,10 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
         Some(key) => key,
         None => {
             println!("{} No API key found", style("✗").red());
-            println!("  {} Set OPENROUTER_API_KEY environment variable", style("→").dim());
+            println!(
+                "  {} Set OPENROUTER_API_KEY environment variable",
+                style("→").dim()
+            );
             std::process::exit(1);
         }
     };
@@ -190,8 +210,15 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     if PROTECTED_BRANCHES.contains(&current_branch.as_str()) {
         // Check for upstream remote (fork workflow)
         if get_upstream_remote().await?.is_none() {
-            println!("{} Cannot create PR from protected branch '{}'", style("✗").red(), style(&current_branch).yellow());
-            println!("  {} Create a feature branch first: git checkout -b feat/your-feature", style("→").dim());
+            println!(
+                "{} Cannot create PR from protected branch '{}'",
+                style("✗").red(),
+                style(&current_branch).yellow()
+            );
+            println!(
+                "  {} Create a feature branch first: git checkout -b feat/your-feature",
+                style("→").dim()
+            );
             std::process::exit(1);
         }
     }
@@ -255,7 +282,10 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
                                 println!();
                             }
                             CommitAction::Cancel => {
-                                println!("{} Commit cancelled, continuing with PR...", style("→").dim());
+                                println!(
+                                    "{} Commit cancelled, continuing with PR...",
+                                    style("→").dim()
+                                );
                                 println!();
                             }
                             _ => {}
@@ -277,8 +307,16 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     // Get commits on this branch
     let commits = get_branch_commits(&base_branch).await?;
     if commits.is_empty() {
-        println!("{} No commits found between '{}' and '{}'", style("✗").red(), style(&base_branch).dim(), style(&current_branch).cyan());
-        println!("  {} Make some commits first, or check your base branch", style("→").dim());
+        println!(
+            "{} No commits found between '{}' and '{}'",
+            style("✗").red(),
+            style(&base_branch).dim(),
+            style(&current_branch).cyan()
+        );
+        println!(
+            "  {} Make some commits first, or check your base branch",
+            style("→").dim()
+        );
         std::process::exit(1);
     }
 
@@ -296,7 +334,12 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     let files = files_result?;
 
     if diff.trim().is_empty() {
-        println!("{} No changes found between '{}' and '{}'", style("✗").red(), style(&base_branch).dim(), style(&current_branch).cyan());
+        println!(
+            "{} No changes found between '{}' and '{}'",
+            style("✗").red(),
+            style(&base_branch).dim(),
+            style(&current_branch).cyan()
+        );
         std::process::exit(1);
     }
 
@@ -316,14 +359,7 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
     let (title, body) = stream_pr_content(
-        &client,
-        &api_key,
-        model,
-        &diff,
-        &files,
-        &commits,
-        &spinner,
-        verbose,
+        &client, &api_key, model, &diff, &files, &commits, &spinner, verbose,
     )
     .await?;
 
@@ -339,14 +375,22 @@ pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<
         // Push branch if needed
         push_branch_with_spinner(&current_branch).await?;
         let url = create_pr(&title, &body, args.draft).await?;
-        println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
+        println!(
+            "{} PR created: {}",
+            style("✓").green(),
+            style(&url).cyan().underlined()
+        );
     } else {
         match prompt_pr(&title, &body) {
             PrAction::Create(final_title, final_body) => {
                 // Push branch if needed
                 push_branch_with_spinner(&current_branch).await?;
                 let url = create_pr(&final_title, &final_body, args.draft).await?;
-                println!("{} PR created: {}", style("✓").green(), style(&url).cyan().underlined());
+                println!(
+                    "{} PR created: {}",
+                    style("✓").green(),
+                    style(&url).cyan().underlined()
+                );
             }
             PrAction::Cancel => {
                 println!("{} Cancelled", style("—").dim());

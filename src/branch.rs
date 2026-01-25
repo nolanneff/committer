@@ -19,7 +19,8 @@ use serde::Deserialize;
 use crate::api::{ChatRequest, Message, NonStreamResponse, OPENROUTER_API_URL};
 
 /// Branches that should never receive direct commits.
-pub const PROTECTED_BRANCHES: &[&str] = &["main", "master", "develop", "dev", "staging", "production"];
+pub const PROTECTED_BRANCHES: &[&str] =
+    &["main", "master", "develop", "dev", "staging", "production"];
 
 const FILLER_WORDS: &[&str] = &[
     "add",

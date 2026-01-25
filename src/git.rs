@@ -371,7 +371,9 @@ pub async fn get_cached_remote_head() -> Option<String> {
 
     let full_ref = String::from_utf8_lossy(&output.stdout).trim().to_string();
     // refs/remotes/origin/main -> main
-    full_ref.strip_prefix("refs/remotes/origin/").map(|s| s.to_string())
+    full_ref
+        .strip_prefix("refs/remotes/origin/")
+        .map(|s| s.to_string())
 }
 
 /// Query the remote directly for its default branch (works with any git remote)
@@ -426,10 +428,7 @@ pub async fn branch_needs_push(branch: &str) -> bool {
     match output {
         Ok(o) if o.status.success() => {
             // Has upstream, check if we're ahead
-            let status = Command::new("git")
-                .args(["status", "-sb"])
-                .output()
-                .await;
+            let status = Command::new("git").args(["status", "-sb"]).output().await;
             if let Ok(s) = status {
                 let out = String::from_utf8_lossy(&s.stdout);
                 out.contains("ahead")
@@ -478,7 +477,11 @@ pub async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std
         }
         // Unstaged changes (worktree has modifications) or untracked
         if worktree_status != ' ' {
-            let status_char = if worktree_status == '?' { '?' } else { worktree_status };
+            let status_char = if worktree_status == '?' {
+                '?'
+            } else {
+                worktree_status
+            };
             unstaged.push(format!("  {} {}", status_char, file));
         }
     }
@@ -524,7 +527,10 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
 }
 
 /// Returns the diff between the base branch and HEAD (for PR generation).
-pub async fn get_branch_diff(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn get_branch_diff(
+    base: &str,
+    verbose: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", &format!("{}...HEAD", base)])
         .output()
@@ -562,7 +568,10 @@ pub async fn get_branch_commits(base: &str) -> Result<Vec<String>, Box<dyn std::
 }
 
 /// Returns files changed between base branch and HEAD with status.
-pub async fn get_pr_changed_files(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn get_pr_changed_files(
+    base: &str,
+    verbose: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", "--name-status", &format!("{}...HEAD", base)])
         .output()
