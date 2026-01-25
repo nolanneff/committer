@@ -162,7 +162,12 @@ This project is under active development. Planned features:
 - [ ] Custom commit message formatting (templates, scopes, styles)
 - [ ] More configuration options
 
-Contributions and feedback welcome.
+## Contributing
+
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Commit using conventional commits (Could use committer 🙂)
+4. Open a PR against `main`
 
 ## License
 
