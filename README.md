@@ -4,7 +4,7 @@
 
 **AI-powered commits, branches, and pull requests.**
 
-[![Crates.io](https://img.shields.io/crates/v/committer.svg)](https://crates.io/crates/committer)
+[![Crates.io](https://img.shields.io/crates/v/committer-cli.svg)](https://crates.io/crates/committer-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-blue)](https://github.com/nolanneff/committer/releases)
@@ -60,7 +60,7 @@ Generate PR titles and descriptions from your commits, then create the PR:
 ### From crates.io
 
 ```bash
-cargo install committer
+cargo install committer-cli
 ```
 
 ### From source
