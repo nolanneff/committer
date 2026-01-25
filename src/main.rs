@@ -6,14 +6,16 @@ use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
-use std::path::PathBuf;
 use tokio::process::Command;
+
+mod config;
+
+use config::{config_path, get_api_key, load_config, save_config, Config};
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-const DEFAULT_MODEL: &str = "google/gemini-3-flash-preview";
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 const EXCLUDED_FROM_DIFF: &[&str] = &[
@@ -40,63 +42,6 @@ const EXCLUDED_FROM_DIFF: &[&str] = &[
     "__pycache__/",
 ];
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    #[serde(default)]
-    auto_commit: bool,
-    #[serde(default)]
-    commit_after_branch: bool,
-    #[serde(default = "default_model")]
-    model: String,
-    #[serde(default)]
-    verbose: bool,
-}
-
-fn default_model() -> String {
-    DEFAULT_MODEL.to_string()
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            auto_commit: false,
-            commit_after_branch: false,
-            model: default_model(),
-            verbose: false,
-        }
-    }
-}
-
-fn config_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("committer")
-        .join("config.toml")
-}
-
-fn load_config() -> Config {
-    let path = config_path();
-    if path.exists() {
-        let contents = std::fs::read_to_string(&path).unwrap_or_default();
-        toml::from_str(&contents).unwrap_or_default()
-    } else {
-        Config::default()
-    }
-}
-
-fn save_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let path = config_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let contents = toml::to_string_pretty(config)?;
-    std::fs::write(&path, contents)?;
-    Ok(())
-}
-
-fn get_api_key() -> Option<String> {
-    std::env::var("OPENROUTER_API_KEY").ok()
-}
 
 // ============================================================================
 // CLI Interface
