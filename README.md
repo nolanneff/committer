@@ -1,256 +1,198 @@
+<div align="center">
+
 # Committer
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/your-repo/committer)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
+**AI-powered git commit messages, done right.**
 
-A fast, AI-powered git commit message generator using OpenRouter.
+[![Crates.io](https://img.shields.io/crates/v/committer.svg)](https://crates.io/crates/committer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+
+[Installation](#installation) • [Quick Start](#quick-start) • [Usage](#usage) • [Configuration](#configuration)
+
+</div>
+
+---
+
+Committer generates conventional commit messages from your staged changes using LLMs via [OpenRouter](https://openrouter.ai). It streams responses in real-time, handles large diffs intelligently, and stays out of your way.
+
+```bash
+$ git add .
+$ committer
+✓ feat(auth): add JWT token refresh on expiration
+```
 
 ## Features
 
-- **AI-Powered Messages** - Generates conventional commit messages using LLMs via OpenRouter
-- **Real-Time Streaming** - Watch commit messages generate token-by-token
-- **Branch Intelligence** - Detects branch misalignment and suggests feature branches
-- **Interactive Editing** - Edit generated messages and branch names before accepting
-- **Smart Diff Handling** - Automatically excludes lock files, build artifacts, and minified code
-- **Configurable** - Persistent settings for model selection, auto-commit, and more
-
-## Quick Start
-
-```bash
-# Install
-cargo install --path .
-
-# Set API key
-export OPENROUTER_API_KEY="sk-or-..."
-
-# Generate a commit message
-git add .
-committer
-```
+- **Conventional commits** — Generates properly formatted `type(scope): description` messages
+- **Streaming output** — Watch messages generate token-by-token
+- **Branch intelligence** — Warns when committing directly to protected branches
+- **Pull request generation** — Create PRs with AI-generated titles and descriptions
+- **Smart diff filtering** — Excludes lock files, build artifacts, and minified code
+- **Interactive editing** — Review and edit messages before committing
+- **Model flexibility** — Use any model available on OpenRouter
 
 ## Installation
 
+### From crates.io
+
 ```bash
-git clone <repo>
+cargo install committer
+```
+
+### From source
+
+```bash
+git clone https://github.com/nolanneff/committer.git
 cd committer
-cargo build --release
 cargo install --path .
 ```
 
-## Configuration
+### Pre-built binaries
 
-### API Key
+Download from the [releases page](https://github.com/nolanneff/committer/releases).
 
-```bash
-# Environment variable (recommended)
-export OPENROUTER_API_KEY="sk-or-..."
+## Quick Start
 
-# Or store in config file
-committer config api-key sk-or-...
-```
+1. **Get an API key** from [OpenRouter](https://openrouter.ai/keys)
 
-### Config File
+2. **Set up authentication:**
+   ```bash
+   export OPENROUTER_API_KEY="sk-or-..."
+   ```
 
-Located at `~/.config/committer/config.toml`:
+   Or save it permanently:
+   ```bash
+   committer config api-key sk-or-...
+   ```
 
-```toml
-auto_commit = false
-model = "google/gemini-2.0-flash-001"
-verbose = false
-# api_key = "sk-or-..."  # Optional, env var takes precedence
-```
-
-### Config Commands
-
-```bash
-committer config show                    # Show current config
-committer config auto-commit true        # Skip confirmation prompts
-committer config model <model-name>      # Set default model
-committer config verbose true            # Enable detailed logging
-```
+3. **Generate your first commit:**
+   ```bash
+   git add .
+   committer
+   ```
 
 ## Usage
 
-### Basic Usage
+### Generating commits
 
 ```bash
 # Generate message for staged changes
 committer
 
 # Stage all changes and generate
-committer --all
+committer -a
 
-# Auto-commit without confirmation
-committer --yes
+# Skip confirmation and commit immediately
+committer -y
 
-# Preview message without committing
-committer --dry-run
+# Preview without committing
+committer -d
 
-# Use a different model
-committer --model anthropic/claude-sonnet-4
+# Use a specific model
+committer -m anthropic/claude-sonnet-4
 ```
 
-### Pull Request Generation
-
-Generate AI-powered pull request titles and descriptions:
+### Creating pull requests
 
 ```bash
-# Interactive PR creation
+# Create a PR with AI-generated title and description
 committer pr
 
-# Auto-create without confirmation
-committer pr --yes
-
-# Create as draft PR
+# Create as draft
 committer pr --draft
 
 # Preview without creating
-committer pr --dry-run
-
-# Specify base branch
-committer pr --base main
+committer pr -d
 ```
 
-The PR command:
-- Detects the base branch automatically (supports GitHub, GitLab, etc.)
-- Handles uncommitted changes (offers to commit first)
-- Generates title and description from all commits on the branch
-- Pushes the branch if needed
-- Creates the PR via GitHub CLI (`gh`)
+The PR command automatically:
+- Detects the base branch
+- Commits any staged changes
+- Pushes the branch
+- Generates title and description from your commits
 
-**Requirements:** GitHub CLI must be installed and authenticated (`gh auth login`).
+**Requires:** [GitHub CLI](https://cli.github.com/) (`gh auth login`)
 
-### Branch Analysis
+### Branch protection
 
-Committer can analyze whether your changes belong on the current branch and suggest creating a feature branch instead.
+Committer warns you when committing to protected branches (`main`, `master`, `develop`, `production`) and suggests creating a feature branch:
 
 ```bash
-# Interactive branch suggestion
-committer --branch
+# Enable branch analysis
+committer -b
 
-# Auto-create suggested branches
-committer --auto-branch
+# Automatically create suggested branches
+committer -B
 ```
 
-Protected branches (main, master, develop, production) always trigger a branch suggestion when direct commits are detected.
+## Configuration
 
-When prompted, you can:
-- `y` - Create the suggested branch
-- `n` - Continue on current branch
-- `e` - Edit the branch name before creating
+Configuration is stored at `~/.config/committer/config.toml`.
+
+### Commands
+
+```bash
+committer config show              # View current settings
+committer config api-key <key>     # Set API key
+committer config model <model>     # Set default model
+committer config auto-commit true  # Skip confirmations
+committer config verbose true      # Enable debug output
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `api_key` | — | OpenRouter API key |
+| `model` | `google/gemini-2.0-flash-001` | Default model |
+| `auto_commit` | `false` | Skip confirmation prompts |
+| `verbose` | `false` | Show detailed logs |
+
+### Environment variables
+
+- `OPENROUTER_API_KEY` — API key (takes precedence over config file)
 
 ## CLI Reference
 
-### Commit Command (default)
+### `committer` (commit)
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--yes` | `-y` | Auto-commit without confirmation |
-| `--dry-run` | `-d` | Print message without committing |
-| `--all` | `-a` | Stage all changes before generating |
-| `--model` | `-m` | Override model for this run |
-| `--branch` | `-b` | Enable interactive branch analysis |
-| `--auto-branch` | `-B` | Auto-create misaligned branches |
-| `--verbose` | `-v` | Show detailed operation logs |
+| `--yes` | `-y` | Commit without confirmation |
+| `--dry-run` | `-d` | Preview message only |
+| `--all` | `-a` | Stage all changes first |
+| `--model` | `-m` | Override default model |
+| `--branch` | `-b` | Analyze branch alignment |
+| `--auto-branch` | `-B` | Auto-create feature branches |
+| `--verbose` | `-v` | Show debug output |
 
-### PR Command (`committer pr`)
+### `committer pr`
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--yes` | `-y` | Create PR without confirmation |
-| `--dry-run` | `-d` | Preview without creating PR |
-| `--draft` | `-D` | Create as draft PR |
-| `--base` | `-b` | Override base branch (auto-detected) |
-| `--model` | `-m` | Override model for this run |
-| `--verbose` | `-v` | Show detailed operation logs |
+| `--yes` | `-y` | Create without confirmation |
+| `--dry-run` | `-d` | Preview PR only |
+| `--draft` | `-D` | Create as draft |
+| `--base` | `-b` | Override base branch |
+| `--model` | `-m` | Override default model |
+| `--verbose` | `-v` | Show debug output |
 
-## Smart Diff Handling
+## How it works
 
-Committer automatically filters diffs to focus on meaningful changes:
+1. **Reads staged diff** — Filters out noise (lock files, build artifacts, minified code)
+2. **Truncates if needed** — Large diffs are intelligently trimmed to 300KB
+3. **Streams to LLM** — Sends diff with commit conventions to your chosen model
+4. **Prompts for confirmation** — Review, edit, or cancel before committing
 
-**Excluded files:**
-- Lock files: `Cargo.lock`, `package-lock.json`, `yarn.lock`, `poetry.lock`, etc.
-- Minified code: `.min.js`, `.min.css`, `.map` files
-- Build directories: `target/`, `node_modules/`, `dist/`, `build/`, `.next/`, `__pycache__/`
-
-**Size limits:**
-- Large diffs are intelligently truncated at 300KB to stay within token limits
-- File headers and recent changes are preserved for context
-
-Use `--verbose` to see what files are being excluded and how the diff is processed.
-
-## Default Model
-
-The default model is `google/gemini-2.0-flash-001`, a fast and capable model via OpenRouter.
-
-Change permanently:
-```bash
-committer config model your-preferred-model
-```
-
-Override per-run:
-```bash
-committer --model your-preferred-model
-```
-
-## Architecture
-
-Committer is organized into focused modules:
-
-```
-src/
-├── main.rs      Entry point, CLI dispatch, commit flow
-├── config.rs    Configuration loading/saving (~60 lines)
-├── cli.rs       Clap CLI definitions (~100 lines)
-├── git.rs       Git operations, diff processing (~550 lines)
-├── api.rs       OpenRouter streaming API (~430 lines)
-├── branch.rs    Branch analysis and naming (~250 lines)
-├── pr.rs        Pull request generation (~320 lines)
-└── ui.rs        Interactive prompts (~190 lines)
-```
-
-### Data Flow
-
-```
-User runs committer
-        │
-        ▼
-    CLI parsing (cli.rs)
-        │
-        ▼
-    Load config (config.rs)
-        │
-        ▼
-    Get staged diff (git.rs)
-    ├── Filter excluded files
-    └── Truncate if too large
-        │
-        ▼
-    Stream to LLM (api.rs)
-    └── Build prompt, parse response
-        │
-        ▼
-    User prompt (ui.rs)
-    └── Confirm/edit/cancel
-        │
-        ▼
-    Git commit (git.rs)
-```
-
-### Generating Documentation
-
-```bash
-cargo doc --open
-```
+Use `--verbose` to see exactly what's being sent and processed.
 
 ## Requirements
 
-- Rust (stable)
 - Git
-- OpenRouter API key ([get one here](https://openrouter.ai))
-- GitHub CLI (`gh`) - for PR generation only
+- [OpenRouter API key](https://openrouter.ai/keys)
+- [GitHub CLI](https://cli.github.com/) (for PR generation only)
 
 ## License
 
-MIT
+MIT © [Nolan Neff](https://github.com/nolanneff)
