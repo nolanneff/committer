@@ -24,11 +24,11 @@ $ committer
 
 ## Why Committer?
 
-- **Single binary** — One ~4MB executable, no runtime dependencies
+- **Fast** — Written in Rust with async I/O, starts instantly and streams responses in real-time
 - **Zero config** — Works immediately after install, sensible defaults
 - **Fully automatic** — Run `committer -ay` and walk away
 - **Or fully interactive** — Review, edit, and approve every message
-- **Terminal-native** — Streaming output, no GUI, no browser, no electron
+- **Terminal-native** — Pure CLI, no GUI, no browser, no electron
 - **Customizable** — Change models, auto-commit behavior, verbosity when needed
 
 ## Features
@@ -208,7 +208,7 @@ committer config verbose true      # Enable debug output
 3. **Returns message** — Displays the result, optionally prompts for confirmation
 4. **Commits** — Runs `git commit` with the generated message
 
-The entire process takes ~2 seconds with fast models. Use `--verbose` to see exactly what's happening.
+Startup is instant—no interpreter, no JIT warmup. Use `--verbose` to see exactly what's happening.
 
 ## Requirements
 

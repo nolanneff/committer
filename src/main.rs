@@ -59,7 +59,7 @@ use ui::{prompt_branch_action, prompt_commit, CommitAction};
 // Main
 // ============================================================================
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let mut config = load_config();

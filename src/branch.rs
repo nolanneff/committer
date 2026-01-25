@@ -12,7 +12,7 @@
 //!
 //! Examples: `feat/auth-login`, `fix/ui-button-style`, `refactor/api-client`
 
-use regex::Regex;
+use regex_lite::Regex;
 use reqwest::Client;
 use serde::Deserialize;
 
