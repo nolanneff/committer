@@ -14,7 +14,6 @@
 //! - [`prompt_branch_action`]: Create or skip branch creation
 //! - [`prompt_uncommitted_changes`]: Handle uncommitted changes before PR
 
-use console::style;
 use dialoguer::Input;
 use std::io::{self, Write};
 
@@ -33,32 +32,27 @@ pub enum UncommittedAction {
 /// Displays staged and unstaged files, then asks user to commit, skip, or quit.
 pub fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAction {
     println!();
-    println!("{} Uncommitted changes won't be included in this PR", style("⚠").yellow());
+    println!("⚠ Uncommitted changes won't be included in this PR");
     println!();
 
     if !changes.staged.is_empty() {
-        println!("{}:", style("Staged").green());
+        println!("Staged:");
         for file in &changes.staged {
-            println!("  {}", file);
+            println!("{}", file);
         }
         println!();
     }
 
     if !changes.unstaged.is_empty() {
-        println!("{}:", style("Unstaged").yellow());
+        println!("Unstaged:");
         for file in &changes.unstaged {
-            println!("  {}", file);
+            println!("{}", file);
         }
         println!();
     }
 
-    println!("  {} Commit changes first", style("[c]").cyan().bold());
-    println!("  {} Skip and continue", style("[s]").cyan().bold());
-    println!("  {} Quit", style("[q]").cyan().bold());
-    println!();
-
     loop {
-        print!("{} ", style("Choice:").bold());
+        print!("[c]ommit first  [s]kip  [q]uit: ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -68,7 +62,7 @@ pub fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAc
             "c" | "commit" => return UncommittedAction::Commit,
             "s" | "skip" => return UncommittedAction::Skip,
             "q" | "quit" => return UncommittedAction::Quit,
-            _ => println!("  {} Please enter c, s, or q", style("→").dim()),
+            _ => println!("Please enter c, s, or q"),
         }
     }
 }
@@ -84,24 +78,17 @@ pub fn prompt_branch_action(
 ) -> BranchAction {
     if show_mismatch_header {
         println!();
-        println!("{} Branch mismatch detected", style("⚠").yellow());
-        println!("  Current:   {}", style(current).dim());
-        println!("  Suggested: {}", style(suggested).green());
-        if !reason.is_empty() {
-            println!("  Reason:    {}", style(reason).dim());
-        }
+        println!("⚠ Branch mismatch detected");
+        println!("  Current: {}", current);
+        println!("  Suggested: {}", suggested);
+        println!("  Reason: {}", reason);
         println!();
     }
 
     let mut current_suggestion = suggested.to_string();
 
-    println!("  {} Create branch '{}'", style("[y]").cyan().bold(), style(&current_suggestion).green());
-    println!("  {} Stay on '{}'", style("[n]").cyan().bold(), style(current).dim());
-    println!("  {} Edit branch name", style("[e]").cyan().bold());
-    println!();
-
     loop {
-        print!("{} ", style("Choice:").bold());
+        print!("Create branch? [y/n/e] ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -116,15 +103,10 @@ pub fn prompt_branch_action(
                     .default(current_suggestion.clone())
                     .interact_text()
                     .unwrap();
-                current_suggestion = edited.clone();
-                // Reprint menu with updated branch name
-                println!();
-                println!("  {} Create branch '{}'", style("[y]").cyan().bold(), style(&current_suggestion).green());
-                println!("  {} Stay on '{}'", style("[n]").cyan().bold(), style(current).dim());
-                println!("  {} Edit branch name", style("[e]").cyan().bold());
-                println!();
+                current_suggestion = edited;
+                println!("  Branch: {}", current_suggestion);
             }
-            _ => println!("  {} Please enter y, n, or e", style("→").dim()),
+            _ => println!("Please enter y, n, or e"),
         }
     }
 }
@@ -145,15 +127,10 @@ pub enum CommitAction {
 pub fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
     let mut current_message = message.to_string();
 
-    let print_menu = |show_branch: bool| {
-        println!();
-        println!("  {} Commit", style("[y]").cyan().bold());
-        println!("  {} Cancel", style("[n]").cyan().bold());
-        println!("  {} Edit in $EDITOR", style("[e]").cyan().bold());
-        if show_branch {
-            println!("  {} Create branch first", style("[b]").cyan().bold());
-        }
-        println!();
+    let prompt_text = if show_branch_option {
+        "Commit? [y/n/e/b] "
+    } else {
+        "Commit? [y/n/e] "
     };
 
     let invalid_msg = if show_branch_option {
@@ -162,10 +139,8 @@ pub fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
         "Please enter y, n, or e"
     };
 
-    print_menu(show_branch_option);
-
     loop {
-        print!("{} ", style("Choice:").bold());
+        print!("{}", prompt_text);
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -183,12 +158,11 @@ pub fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
                 current_message = edited;
                 println!();
                 println!("{}", current_message);
-                print_menu(show_branch_option);
             }
             "b" | "branch" if show_branch_option => {
                 return CommitAction::CreateBranch(current_message)
             }
-            _ => println!("  {} {}", style("→").dim(), invalid_msg),
+            _ => println!("{}", invalid_msg),
         }
     }
 }
@@ -208,18 +182,12 @@ pub fn prompt_pr(title: &str, body: &str) -> PrAction {
     let mut current_title = title.to_string();
     let mut current_body = body.to_string();
 
-    let print_menu = || {
-        println!();
-        println!("  {} Create PR", style("[y]").cyan().bold());
-        println!("  {} Cancel", style("[n]").cyan().bold());
-        println!("  {} Edit in $EDITOR", style("[e]").cyan().bold());
-        println!();
-    };
-
-    print_menu();
+    // Calculate initial preview lines (title + blank + body + prompt line we're about to print)
+    let initial_preview = format!("{}\n\n{}", title, body);
+    let mut prev_lines: usize = initial_preview.lines().count() + 1; // +1 for prompt
 
     loop {
-        print!("{} ", style("Choice:").bold());
+        print!("Create PR? [y/n/e] ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -242,14 +210,20 @@ pub fn prompt_pr(title: &str, body: &str) -> PrAction {
                 lines.next(); // Skip blank line
                 current_body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
 
-                // Print updated preview
-                println!();
-                println!("{}", current_title);
-                println!();
-                println!("{}", current_body);
-                print_menu();
+                // Clear previous preview: move up and clear each line
+                // +1 for the "Create PR?" prompt line, +1 for user input line
+                for _ in 0..(prev_lines + 2) {
+                    print!("\x1B[A\x1B[2K");
+                }
+                io::stdout().flush().unwrap();
+
+                // Print new preview and count lines
+                let preview = format!("{}\n\n{}\n", current_title, current_body);
+                print!("{}", preview);
+                io::stdout().flush().unwrap();
+                prev_lines = preview.lines().count();
             }
-            _ => println!("  {} Please enter y, n, or e", style("→").dim()),
+            _ => println!("Please enter y, n, or e"),
         }
     }
 }
