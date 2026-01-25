@@ -21,7 +21,6 @@
 //! Diffs are truncated at [`MAX_DIFF_CHARS`] (300KB) to stay within LLM
 //! context limits while preserving file headers for context.
 
-use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::Command;
 
@@ -498,7 +497,7 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
     spinner.set_style(
         ProgressStyle::default_spinner()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-            .template("{spinner:.cyan} Pushing branch to origin...")
+            .template("Pushing branch to origin {spinner}")
             .unwrap(),
     );
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -515,7 +514,7 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
         return Err(format!("Failed to push branch: {}", stderr).into());
     }
 
-    println!("{} Pushed branch to origin", style("✓").green());
+    println!("— Pushed branch to origin");
     Ok(())
 }
 
