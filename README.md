@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/Icon.png" alt="Committer" width="128" height="128">
+
 # Committer
 
 **AI-powered commits, branches, and pull requests.**
@@ -36,31 +38,19 @@ $ committer
 
 Generate conventional commits from your staged changes:
 
-```bash
-$ committer
-✓ fix(api): handle timeout errors in retry logic
-```
+<img src="assets/demos/commit.gif" alt="Committer generating a commit message" width="600">
 
 ### Branch Detection
 
 Catch mistakes before they happen. Committer analyzes your changes and warns if they don't match your current branch:
 
-```bash
-$ committer -b
-⚠ These changes look like authentication work, but you're on main
-→ Create branch feat/auth-jwt-refresh? [y/n/e]
-```
+<img src="assets/demos/branch.gif" alt="Committer detecting branch misalignment" width="600">
 
 ### Pull Requests
 
 Generate PR titles and descriptions from your commits, then create the PR:
 
-```bash
-$ committer pr
-✓ Title: Add JWT token refresh on expiration
-✓ Description: [generated from commits]
-→ Create PR? [y/n/e]
-```
+<img src="assets/demos/pr.gif" alt="Committer creating a pull request" width="600">
 
 ## Features
 
