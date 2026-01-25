@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use dialoguer::Input;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -8,13 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use tokio::process::Command;
 
+mod cli;
 mod config;
 
+use cli::{Cli, Commands, ConfigAction, PrArgs};
 use config::{config_path, get_api_key, load_config, save_config, Config};
-
-// ============================================================================
-// Configuration
-// ============================================================================
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -42,110 +40,6 @@ const EXCLUDED_FROM_DIFF: &[&str] = &[
     "__pycache__/",
 ];
 
-
-// ============================================================================
-// CLI Interface
-// ============================================================================
-
-#[derive(Parser)]
-#[command(name = "committer")]
-#[command(about = "Fast AI-powered git commit message generator", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-
-    /// Auto-commit without asking
-    #[arg(short = 'y', long)]
-    yes: bool,
-
-    /// Just print the message, don't commit
-    #[arg(short, long)]
-    dry_run: bool,
-
-    /// Include unstaged changes
-    #[arg(short, long)]
-    all: bool,
-
-    /// Override model for this run
-    #[arg(short, long)]
-    model: Option<String>,
-
-    /// Interactive branch suggestion on mismatch [y/n/e]
-    #[arg(short = 'b', long)]
-    branch: bool,
-
-    /// Auto-create branch on mismatch (non-interactive, just logs)
-    #[arg(short = 'B', long)]
-    auto_branch: bool,
-
-    /// Show detailed operation logs (excluded files, truncation, etc.)
-    #[arg(short = 'v', long)]
-    verbose: bool,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Manage configuration
-    Config {
-        #[command(subcommand)]
-        action: ConfigAction,
-    },
-    /// Generate and create a pull request
-    Pr(PrArgs),
-}
-
-#[derive(Parser)]
-struct PrArgs {
-    /// Create PR without confirmation
-    #[arg(short = 'y', long)]
-    yes: bool,
-
-    /// Show generated content, don't create PR
-    #[arg(short, long)]
-    dry_run: bool,
-
-    /// Create as draft PR
-    #[arg(short = 'D', long)]
-    draft: bool,
-
-    /// Override base branch (default: auto-detect)
-    #[arg(short, long)]
-    base: Option<String>,
-
-    /// Show detailed operation logs
-    #[arg(short = 'v', long)]
-    verbose: bool,
-
-    /// Override model for this run
-    #[arg(short, long)]
-    model: Option<String>,
-}
-
-#[derive(Subcommand)]
-enum ConfigAction {
-    /// Show current configuration
-    Show,
-    /// Set auto-commit behavior
-    AutoCommit {
-        /// true or false
-        value: String,
-    },
-    /// Auto-commit after creating branch via 'b' option
-    CommitAfterBranch {
-        /// true or false
-        value: String,
-    },
-    /// Set default model
-    Model {
-        /// Model identifier (e.g., x-ai/grok-4.1-fast:free)
-        value: String,
-    },
-    /// Enable verbose operation logs by default
-    Verbose {
-        /// true or false
-        value: String,
-    },
-}
 
 // ============================================================================
 // Git Operations
