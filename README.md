@@ -2,7 +2,7 @@
 
 # Committer
 
-**Lightweight, terminal-native AI commit messages.**
+**AI-powered commits, branches, and pull requests.**
 
 [![Crates.io](https://img.shields.io/crates/v/committer.svg)](https://crates.io/crates/committer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -14,7 +14,7 @@
 
 ---
 
-A single binary that generates conventional commit messages from your staged changes. Zero config required—just run `committer` and you're done. Customize everything when you need to.
+A fast, lightweight CLI that automates your git workflow. Generate commit messages, detect branch misalignment, create feature branches, and open pull requests—all powered by AI.
 
 ```bash
 $ git add .
@@ -24,19 +24,48 @@ $ committer
 
 ## Why Committer?
 
-- **Fast** — Written in Rust with async I/O, starts instantly and streams responses in real-time
-- **Zero config** — Works immediately after install, sensible defaults
-- **Fully automatic** — Run `committer -ay` and walk away
-- **Or fully interactive** — Review, edit, and approve every message
-- **Terminal-native** — Pure CLI, no GUI, no browser, no electron
-- **Customizable** — Change models, auto-commit behavior, verbosity when needed
+- **Beyond commit messages** — Also handles branch creation and pull requests
+- **Branch intelligence** — Detects when changes don't belong on your current branch
+- **Fast** — Written in Rust, starts instantly, streams responses in real-time
+- **Zero config** — Works immediately after install
+- **Fully automatic or interactive** — Your choice
+
+## What It Does
+
+### Commit Messages
+
+Generate conventional commits from your staged changes:
+
+```bash
+$ committer
+✓ fix(api): handle timeout errors in retry logic
+```
+
+### Branch Detection
+
+Catch mistakes before they happen. Committer analyzes your changes and warns if they don't match your current branch:
+
+```bash
+$ committer -b
+⚠ These changes look like authentication work, but you're on main
+→ Create branch feat/auth-jwt-refresh? [y/n/e]
+```
+
+### Pull Requests
+
+Generate PR titles and descriptions from your commits, then create the PR:
+
+```bash
+$ committer pr
+✓ Title: Add JWT token refresh on expiration
+✓ Description: [generated from commits]
+→ Create PR? [y/n/e]
+```
 
 ## Features
 
 - **Conventional commits** — Properly formatted `type(scope): description` messages
 - **Real-time streaming** — Watch messages generate token-by-token
-- **Branch protection** — Warns before committing to main/master/develop
-- **Pull request generation** — Create PRs with AI-generated titles and descriptions
 - **Smart diff filtering** — Automatically excludes lock files, build artifacts, minified code
 - **Large diff handling** — Intelligently truncates at 300KB to stay within limits
 - **Any model** — Use Claude, GPT-4, Gemini, Llama, or any model on OpenRouter
@@ -65,15 +94,12 @@ Download from the [releases page](https://github.com/nolanneff/committer/release
 
 1. **Get an API key** from [OpenRouter](https://openrouter.ai/keys)
 
-2. **Set up authentication:**
+2. **Set your API key:**
    ```bash
    export OPENROUTER_API_KEY="sk-or-..."
    ```
 
-   Or save it permanently:
-   ```bash
-   committer config api-key sk-or-...
-   ```
+   Add to your shell profile (`~/.bashrc`, `~/.zshrc`) to persist across sessions.
 
 3. **Generate your first commit:**
    ```bash
@@ -83,27 +109,7 @@ Download from the [releases page](https://github.com/nolanneff/committer/release
 
 ## Usage
 
-### Fully automatic
-
-Stage and commit in one command, no prompts:
-
-```bash
-committer -ay
-```
-
-That's it. Your changes are committed with an AI-generated message.
-
-### Interactive (default)
-
-Review and optionally edit before committing:
-
-```bash
-committer
-```
-
-You'll see the generated message and can accept, edit, or cancel.
-
-### All options
+### Commits
 
 ```bash
 committer              # Generate message, prompt for confirmation
@@ -114,38 +120,22 @@ committer -d           # Dry run, preview message only
 committer -m <model>   # Use a specific model
 ```
 
-### Creating pull requests
+### Branches
 
 ```bash
-# Create a PR with AI-generated title and description
-committer pr
-
-# Create as draft
-committer pr --draft
-
-# Preview without creating
-committer pr -d
+committer -b           # Analyze branch alignment, prompt to create
+committer -B           # Auto-create suggested branches
 ```
 
-The PR command automatically:
-- Detects the base branch
-- Commits any staged changes
-- Pushes the branch
-- Generates title and description from your commits
+### Pull Requests
+
+```bash
+committer pr           # Create PR with AI-generated title/description
+committer pr --draft   # Create as draft
+committer pr -d        # Preview without creating
+```
 
 **Requires:** [GitHub CLI](https://cli.github.com/) (`gh auth login`)
-
-### Branch protection
-
-Committer warns you when committing to protected branches (`main`, `master`, `develop`, `production`) and suggests creating a feature branch:
-
-```bash
-# Enable branch analysis
-committer -b
-
-# Automatically create suggested branches
-committer -B
-```
 
 ## Configuration
 
@@ -157,7 +147,6 @@ Config file: `~/.config/committer/config.toml`
 
 ```bash
 committer config show              # View current settings
-committer config api-key <key>     # Set API key
 committer config model <model>     # Set default model
 committer config auto-commit true  # Skip confirmations
 committer config verbose true      # Enable debug output
@@ -167,14 +156,13 @@ committer config verbose true      # Enable debug output
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `api_key` | — | OpenRouter API key |
 | `model` | `google/gemini-2.0-flash-001` | Default model |
 | `auto_commit` | `false` | Skip confirmation prompts |
 | `verbose` | `false` | Show detailed logs |
 
 ### Environment variables
 
-- `OPENROUTER_API_KEY` — API key (takes precedence over config file)
+- `OPENROUTER_API_KEY` — API key (required)
 
 ## CLI Reference
 
