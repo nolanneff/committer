@@ -1,3 +1,22 @@
+//! Pull request generation and GitHub CLI integration.
+//!
+//! This module handles the `committer pr` subcommand workflow:
+//!
+//! 1. Validates GitHub CLI is installed and authenticated
+//! 2. Detects base branch automatically (or uses `--base`)
+//! 3. Handles uncommitted changes (commit, skip, or quit)
+//! 4. Generates PR title and description using LLM
+//! 5. Pushes branch and creates PR via GitHub CLI
+//!
+//! # Example
+//!
+//! ```bash
+//! committer pr              # Interactive PR creation
+//! committer pr --yes        # Auto-create without confirmation
+//! committer pr --draft      # Create as draft PR
+//! committer pr --dry-run    # Preview without creating
+//! ```
+
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use tokio::process::Command;
@@ -17,6 +36,7 @@ use crate::ui::{
     UncommittedAction,
 };
 
+/// Checks if the GitHub CLI (`gh`) is installed.
 pub async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("gh").args(["--version"]).output().await;
 
@@ -31,7 +51,10 @@ pub async fn check_gh_installed() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Check if a branch exists and has a merge base with HEAD
+/// Detects the default base branch for the PR.
+///
+/// Tries multiple strategies: GitHub CLI, cached origin/HEAD, remote query,
+/// and common branch name fallbacks.
 pub async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     // Strategy 1: Try gh CLI (works for GitHub repos)
     let gh_output = Command::new("gh")
@@ -111,6 +134,9 @@ pub async fn get_default_base_branch(verbose: bool) -> Result<String, Box<dyn st
     Err("Could not determine default base branch. Use --base <branch> to specify manually.".into())
 }
 
+/// Creates a pull request via GitHub CLI.
+///
+/// Returns the PR URL on success.
 pub async fn create_pr(title: &str, body: &str, draft: bool) -> Result<String, Box<dyn std::error::Error>> {
     let mut args = vec!["pr", "create", "--title", title, "--body", body];
     if draft {
@@ -136,6 +162,9 @@ pub async fn create_pr(title: &str, body: &str, draft: bool) -> Result<String, B
     Ok(url)
 }
 
+/// Main handler for the `committer pr` subcommand.
+///
+/// Orchestrates the full PR creation workflow.
 pub async fn handle_pr_command(args: PrArgs, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     // Check gh CLI is installed
     check_gh_installed().await?;

@@ -1,9 +1,24 @@
+//! Branch analysis and naming utilities.
+//!
+//! This module provides intelligent branch management:
+//!
+//! - **Branch alignment analysis**: Detects when commits don't match the current branch
+//! - **Branch name generation**: Creates semantic branch names from commit messages
+//! - **Protected branch detection**: Prevents accidental commits to main/master/etc.
+//!
+//! # Branch Naming Convention
+//!
+//! Generated branch names follow the pattern: `<type>/<scope>-<description>`
+//!
+//! Examples: `feat/auth-login`, `fix/ui-button-style`, `refactor/api-client`
+
 use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
 
 use crate::api::{ChatRequest, Message, NonStreamResponse, OPENROUTER_API_URL};
 
+/// Branches that should never receive direct commits.
 pub const PROTECTED_BRANCHES: &[&str] = &["main", "master", "develop", "dev", "staging", "production"];
 
 const FILLER_WORDS: &[&str] = &[
@@ -40,18 +55,28 @@ const FILLER_WORDS: &[&str] = &[
     "or",
 ];
 
+/// Result of analyzing whether a commit belongs on the current branch.
 #[derive(Deserialize)]
 pub struct BranchAnalysis {
+    /// True if the commit aligns with the branch's purpose.
     pub matches: bool,
+    /// Explanation of the analysis result.
     pub reason: String,
+    /// Suggested branch name if there's a mismatch.
     pub suggested_branch: Option<String>,
 }
 
+/// User's choice when prompted about branch creation.
 pub enum BranchAction {
+    /// Create a new branch with the given name.
     Create(String),
+    /// Continue on the current branch.
     Skip,
 }
 
+/// Converts text to a kebab-case slug suitable for branch names.
+///
+/// Filters out common filler words and limits to `max_words`.
 pub fn slugify(text: &str, max_words: usize) -> String {
     let words: Vec<&str> = text
         .split_whitespace()
@@ -77,6 +102,10 @@ pub fn slugify(text: &str, max_words: usize) -> String {
         .collect()
 }
 
+/// Generates a branch name from a commit message without LLM.
+///
+/// Parses conventional commit format to extract type/scope, falling back
+/// to `feat/<slug>` if parsing fails.
 pub fn generate_fallback_branch(commit_message: &str) -> String {
     let first_line = commit_message.lines().next().unwrap_or(commit_message);
 
@@ -97,6 +126,9 @@ pub fn generate_fallback_branch(commit_message: &str) -> String {
     }
 }
 
+/// Analyzes whether a commit belongs on the current branch using LLM.
+///
+/// Returns analysis with match status, reason, and suggested branch name.
 pub async fn analyze_branch_alignment(
     client: &Client,
     api_key: &str,
@@ -180,6 +212,9 @@ Respond with ONLY valid JSON:
     Ok(analysis)
 }
 
+/// Generates a branch name suggestion using LLM.
+///
+/// Falls back to [`generate_fallback_branch`] on error.
 pub async fn generate_branch_suggestion(
     client: &Client,
     api_key: &str,

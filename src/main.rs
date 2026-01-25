@@ -1,3 +1,32 @@
+//! Committer - AI-powered git commit message generator.
+//!
+//! Committer uses LLMs via OpenRouter to generate conventional commit messages
+//! from staged changes, with features like:
+//!
+//! - **Streaming output**: Watch messages generate token-by-token
+//! - **Branch intelligence**: Detects misaligned branches and suggests alternatives
+//! - **Interactive editing**: Edit messages before committing
+//! - **Smart diff handling**: Filters noise and truncates large diffs
+//! - **PR generation**: Create pull requests with AI-generated descriptions
+//!
+//! # Modules
+//!
+//! - [`api`]: OpenRouter API integration
+//! - [`branch`]: Branch analysis and naming
+//! - [`cli`]: Command-line interface
+//! - [`config`]: Configuration management
+//! - [`git`]: Git operations
+//! - [`pr`]: Pull request generation
+//! - [`ui`]: User interaction prompts
+//!
+//! # Quick Start
+//!
+//! ```bash
+//! export OPENROUTER_API_KEY="sk-or-..."
+//! git add .
+//! committer
+//! ```
+
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;

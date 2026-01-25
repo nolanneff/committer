@@ -1,5 +1,17 @@
+//! Command-line interface definitions for Committer.
+//!
+//! This module defines all CLI arguments, subcommands, and options using
+//! the [clap](https://docs.rs/clap) crate with derive macros.
+//!
+//! # Commands
+//!
+//! - Default (no subcommand): Generate and create a commit
+//! - `config`: Manage persistent configuration
+//! - `pr`: Generate and create a pull request
+
 use clap::{Parser, Subcommand};
 
+/// Main CLI structure for Committer.
 #[derive(Parser)]
 #[command(name = "committer")]
 #[command(about = "Fast AI-powered git commit message generator", long_about = None)]
@@ -36,6 +48,7 @@ pub struct Cli {
     pub verbose: bool,
 }
 
+/// Available subcommands.
 #[derive(Subcommand)]
 pub enum Commands {
     /// Manage configuration
@@ -47,6 +60,7 @@ pub enum Commands {
     Pr(PrArgs),
 }
 
+/// Arguments for the `pr` subcommand.
 #[derive(Parser)]
 pub struct PrArgs {
     /// Create PR without confirmation
@@ -74,6 +88,7 @@ pub struct PrArgs {
     pub model: Option<String>,
 }
 
+/// Configuration subcommand actions.
 #[derive(Subcommand)]
 pub enum ConfigAction {
     /// Show current configuration

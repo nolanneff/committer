@@ -1,15 +1,35 @@
+//! User interaction and prompts.
+//!
+//! This module provides interactive prompts for user decisions during
+//! commit and PR workflows. All prompts support:
+//!
+//! - Single-key responses (y/n/e)
+//! - Full word responses (yes/no/edit)
+//! - Editor integration for message editing
+//!
+//! # Prompts
+//!
+//! - [`prompt_commit`]: Confirm or edit commit message
+//! - [`prompt_pr`]: Confirm or edit PR title/body
+//! - [`prompt_branch_action`]: Create or skip branch creation
+//! - [`prompt_uncommitted_changes`]: Handle uncommitted changes before PR
+
 use dialoguer::Input;
 use std::io::{self, Write};
 
 use crate::branch::BranchAction;
 use crate::git::UncommittedChanges;
 
+/// User's choice when uncommitted changes are detected.
 pub enum UncommittedAction {
     Commit,
     Skip,
     Quit,
 }
 
+/// Prompts user to handle uncommitted changes before creating a PR.
+///
+/// Displays staged and unstaged files, then asks user to commit, skip, or quit.
 pub fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAction {
     println!();
     println!("⚠ Uncommitted changes won't be included in this PR");
@@ -47,6 +67,9 @@ pub fn prompt_uncommitted_changes(changes: &UncommittedChanges) -> UncommittedAc
     }
 }
 
+/// Prompts user to create a new branch or continue on current.
+///
+/// Options: `y` (create), `n` (skip), `e` (edit name then create).
 pub fn prompt_branch_action(
     current: &str,
     suggested: &str,
@@ -88,12 +111,19 @@ pub fn prompt_branch_action(
     }
 }
 
+/// User's choice after reviewing a commit message.
 pub enum CommitAction {
+    /// Proceed with commit using the (possibly edited) message.
     Commit(String),
+    /// Cancel the commit.
     Cancel,
+    /// Create a new branch first, then prompt again.
     CreateBranch(String),
 }
 
+/// Prompts user to confirm, edit, or cancel a commit.
+///
+/// Options: `y` (commit), `n` (cancel), `e` (edit in $EDITOR), `b` (create branch first).
 pub fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
     let mut current_message = message.to_string();
 
@@ -137,11 +167,17 @@ pub fn prompt_commit(message: &str, show_branch_option: bool) -> CommitAction {
     }
 }
 
+/// User's choice after reviewing PR content.
 pub enum PrAction {
-    Create(String, String), // (title, body)
+    /// Create the PR with (title, body).
+    Create(String, String),
+    /// Cancel PR creation.
     Cancel,
 }
 
+/// Prompts user to confirm, edit, or cancel PR creation.
+///
+/// Options: `y` (create), `n` (cancel), `e` (edit in $EDITOR).
 pub fn prompt_pr(title: &str, body: &str) -> PrAction {
     let mut current_title = title.to_string();
     let mut current_body = body.to_string();

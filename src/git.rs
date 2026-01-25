@@ -1,6 +1,30 @@
+//! Git operations and diff processing.
+//!
+//! This module handles all interactions with git, including:
+//!
+//! - **Diff retrieval**: [`get_git_diff`], [`get_branch_diff`]
+//! - **Diff filtering**: Excludes lock files, minified code, build artifacts
+//! - **Diff truncation**: Limits size to stay within LLM token limits
+//! - **Status queries**: [`get_staged_files`], [`get_uncommitted_changes`]
+//! - **Branch operations**: [`get_current_branch`], [`create_and_switch_branch`]
+//! - **Commit operations**: [`run_git_commit`], [`stage_all_changes`]
+//! - **Push operations**: [`push_branch_with_spinner`]
+//!
+//! # Diff Filtering
+//!
+//! Files matching [`EXCLUDED_FROM_DIFF`] patterns are automatically removed
+//! from diffs to reduce noise and token usage. This includes lock files,
+//! minified code, and build directories.
+//!
+//! # Size Limits
+//!
+//! Diffs are truncated at [`MAX_DIFF_CHARS`] (300KB) to stay within LLM
+//! context limits while preserving file headers for context.
+
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::Command;
 
+/// File patterns excluded from diffs to reduce noise.
 pub const EXCLUDED_FROM_DIFF: &[&str] = &[
     // Lock files
     "Cargo.lock",
@@ -25,10 +49,13 @@ pub const EXCLUDED_FROM_DIFF: &[&str] = &[
     "__pycache__/",
 ];
 
-// Maximum characters to send (roughly 100K tokens * 4 chars/token = 400K chars)
-// Leave headroom for prompt and response
+/// Maximum diff size in characters before truncation.
+///
+/// Set to 300KB to stay within typical LLM context limits while leaving
+/// room for the prompt and response.
 pub const MAX_DIFF_CHARS: usize = 300_000;
 
+/// Checks if a file should be excluded from the diff based on [`EXCLUDED_FROM_DIFF`] patterns.
 pub fn should_exclude_from_diff(filename: &str) -> bool {
     EXCLUDED_FROM_DIFF.iter().any(|pattern| {
         if pattern.ends_with('/') {
@@ -54,6 +81,9 @@ fn extract_filename_from_diff_header(header: &str) -> Option<&str> {
         .and_then(|rest| rest.split(" b/").next())
 }
 
+/// Removes excluded files from a diff based on [`EXCLUDED_FROM_DIFF`] patterns.
+///
+/// In verbose mode, prints excluded files to stderr.
 pub fn filter_excluded_diffs(diff: &str, verbose: bool) -> String {
     if diff.is_empty() {
         return diff.to_string();
@@ -174,6 +204,9 @@ pub fn truncate_diff(diff: &str, verbose: bool) -> String {
     result
 }
 
+/// Retrieves the git diff, filtered and truncated for LLM consumption.
+///
+/// Applies [`filter_excluded_diffs`] and [`truncate_diff`] automatically.
 pub async fn get_git_diff(
     staged_only: bool,
     verbose: bool,
@@ -196,6 +229,9 @@ pub async fn get_git_diff(
     Ok(truncate_diff(&filtered_diff, verbose))
 }
 
+/// Returns a list of staged files with their status (M/A/D).
+///
+/// Excluded files are annotated with `[excluded from diff]`.
 pub async fn get_staged_files(verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", "--staged", "--name-status"])
@@ -239,6 +275,7 @@ pub async fn get_staged_files(verbose: bool) -> Result<String, Box<dyn std::erro
     Ok(annotated.join("\n"))
 }
 
+/// Creates a git commit with the given message.
 pub async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["commit", "-m", message])
@@ -253,6 +290,7 @@ pub async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// Stages all changes (tracked and untracked) via `git add -A`.
 pub async fn stage_all_changes() -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("git").args(["add", "-A"]).output().await?;
 
@@ -264,6 +302,7 @@ pub async fn stage_all_changes() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Returns the name of the current git branch.
 pub async fn get_current_branch() -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -278,6 +317,7 @@ pub async fn get_current_branch() -> Result<String, Box<dyn std::error::Error>> 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Creates a new branch and switches to it.
 pub async fn create_and_switch_branch(branch_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["checkout", "-b", branch_name])
@@ -292,6 +332,7 @@ pub async fn create_and_switch_branch(branch_name: &str) -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Returns the subject lines of recent commits (for branch analysis context).
 pub async fn get_recent_commits(limit: usize) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["log", "--oneline", &format!("-{}", limit), "--format=%s"])
@@ -359,6 +400,7 @@ pub async fn get_remote_default_branch() -> Option<String> {
     None
 }
 
+/// Checks if an 'upstream' remote exists (for fork workflows).
 pub async fn get_upstream_remote() -> Result<Option<String>, Box<dyn std::error::Error>> {
     // Check if 'upstream' remote exists (common fork workflow)
     let output = Command::new("git")
@@ -372,6 +414,7 @@ pub async fn get_upstream_remote() -> Result<Option<String>, Box<dyn std::error:
     Ok(None)
 }
 
+/// Returns true if the branch needs to be pushed to origin.
 pub async fn branch_needs_push(branch: &str) -> bool {
     // Check if branch has upstream tracking
     let output = Command::new("git")
@@ -397,11 +440,15 @@ pub async fn branch_needs_push(branch: &str) -> bool {
     }
 }
 
+/// Uncommitted changes in the working directory.
 pub struct UncommittedChanges {
+    /// Files staged for commit.
     pub staged: Vec<String>,
+    /// Modified or untracked files not yet staged.
     pub unstaged: Vec<String>,
 }
 
+/// Returns lists of staged and unstaged changes.
 pub async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["status", "--porcelain"])
@@ -438,6 +485,9 @@ pub async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std
     Ok(UncommittedChanges { staged, unstaged })
 }
 
+/// Pushes the branch to origin with a progress spinner.
+///
+/// Skips if branch is already up-to-date with upstream.
 pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::error::Error>> {
     if !branch_needs_push(branch).await {
         return Ok(());
@@ -468,6 +518,7 @@ pub async fn push_branch_with_spinner(branch: &str) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// Returns the diff between the base branch and HEAD (for PR generation).
 pub async fn get_branch_diff(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", &format!("{}...HEAD", base)])
@@ -484,6 +535,7 @@ pub async fn get_branch_diff(base: &str, verbose: bool) -> Result<String, Box<dy
     Ok(truncate_diff(&filtered_diff, verbose))
 }
 
+/// Returns commit subjects between base branch and HEAD.
 pub async fn get_branch_commits(base: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["log", &format!("{}..HEAD", base), "--format=%s"])
@@ -504,6 +556,7 @@ pub async fn get_branch_commits(base: &str) -> Result<Vec<String>, Box<dyn std::
     Ok(commits)
 }
 
+/// Returns files changed between base branch and HEAD with status.
 pub async fn get_pr_changed_files(base: &str, verbose: bool) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["diff", "--name-status", &format!("{}...HEAD", base)])

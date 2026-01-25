@@ -91,6 +91,36 @@ committer --dry-run
 committer --model anthropic/claude-sonnet-4
 ```
 
+### Pull Request Generation
+
+Generate AI-powered pull request titles and descriptions:
+
+```bash
+# Interactive PR creation
+committer pr
+
+# Auto-create without confirmation
+committer pr --yes
+
+# Create as draft PR
+committer pr --draft
+
+# Preview without creating
+committer pr --dry-run
+
+# Specify base branch
+committer pr --base main
+```
+
+The PR command:
+- Detects the base branch automatically (supports GitHub, GitLab, etc.)
+- Handles uncommitted changes (offers to commit first)
+- Generates title and description from all commits on the branch
+- Pushes the branch if needed
+- Creates the PR via GitHub CLI (`gh`)
+
+**Requirements:** GitHub CLI must be installed and authenticated (`gh auth login`).
+
 ### Branch Analysis
 
 Committer can analyze whether your changes belong on the current branch and suggest creating a feature branch instead.
@@ -112,6 +142,8 @@ When prompted, you can:
 
 ## CLI Reference
 
+### Commit Command (default)
+
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--yes` | `-y` | Auto-commit without confirmation |
@@ -120,6 +152,17 @@ When prompted, you can:
 | `--model` | `-m` | Override model for this run |
 | `--branch` | `-b` | Enable interactive branch analysis |
 | `--auto-branch` | `-B` | Auto-create misaligned branches |
+| `--verbose` | `-v` | Show detailed operation logs |
+
+### PR Command (`committer pr`)
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--yes` | `-y` | Create PR without confirmation |
+| `--dry-run` | `-d` | Preview without creating PR |
+| `--draft` | `-D` | Create as draft PR |
+| `--base` | `-b` | Override base branch (auto-detected) |
+| `--model` | `-m` | Override model for this run |
 | `--verbose` | `-v` | Show detailed operation logs |
 
 ## Smart Diff Handling
@@ -151,11 +194,62 @@ Override per-run:
 committer --model your-preferred-model
 ```
 
+## Architecture
+
+Committer is organized into focused modules:
+
+```
+src/
+├── main.rs      Entry point, CLI dispatch, commit flow
+├── config.rs    Configuration loading/saving (~60 lines)
+├── cli.rs       Clap CLI definitions (~100 lines)
+├── git.rs       Git operations, diff processing (~550 lines)
+├── api.rs       OpenRouter streaming API (~430 lines)
+├── branch.rs    Branch analysis and naming (~250 lines)
+├── pr.rs        Pull request generation (~320 lines)
+└── ui.rs        Interactive prompts (~190 lines)
+```
+
+### Data Flow
+
+```
+User runs committer
+        │
+        ▼
+    CLI parsing (cli.rs)
+        │
+        ▼
+    Load config (config.rs)
+        │
+        ▼
+    Get staged diff (git.rs)
+    ├── Filter excluded files
+    └── Truncate if too large
+        │
+        ▼
+    Stream to LLM (api.rs)
+    └── Build prompt, parse response
+        │
+        ▼
+    User prompt (ui.rs)
+    └── Confirm/edit/cancel
+        │
+        ▼
+    Git commit (git.rs)
+```
+
+### Generating Documentation
+
+```bash
+cargo doc --open
+```
+
 ## Requirements
 
 - Rust (stable)
 - Git
 - OpenRouter API key ([get one here](https://openrouter.ai))
+- GitHub CLI (`gh`) - for PR generation only
 
 ## License
 

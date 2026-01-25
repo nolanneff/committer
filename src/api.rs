@@ -1,11 +1,28 @@
+//! OpenRouter API integration for LLM-powered content generation.
+//!
+//! This module handles all communication with the OpenRouter API, including:
+//!
+//! - **Streaming responses**: Real-time token-by-token output
+//! - **Prompt construction**: Building prompts for commit messages and PRs
+//! - **Response parsing**: Handling both streaming and non-streaming responses
+//!
+//! # Key Functions
+//!
+//! - [`stream_commit_message`]: Generate a commit message with streaming output
+//! - [`stream_pr_content`]: Generate PR title and body with streaming output
+//! - [`build_prompt`]: Construct the commit message prompt
+//! - [`build_pr_prompt`]: Construct the PR generation prompt
+
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 
+/// OpenRouter API endpoint for chat completions.
 pub const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+/// Request body for OpenRouter chat completions API.
 #[derive(Serialize)]
 pub struct ChatRequest {
     pub model: String,
@@ -15,47 +32,58 @@ pub struct ChatRequest {
     pub provider: Option<ProviderPreference>,
 }
 
+/// Provider ordering preferences for OpenRouter.
 #[derive(Serialize)]
 pub struct ProviderPreference {
     pub order: Vec<String>,
 }
 
+/// A single message in the chat conversation.
 #[derive(Serialize)]
 pub struct Message {
     pub role: String,
     pub content: String,
 }
 
+/// A chunk from the streaming response.
 #[derive(Deserialize)]
 pub struct StreamChunk {
     pub choices: Vec<Choice>,
 }
 
+/// A single choice in a streaming chunk.
 #[derive(Deserialize)]
 pub struct Choice {
     pub delta: Delta,
 }
 
+/// Delta content in a streaming response.
 #[derive(Deserialize)]
 pub struct Delta {
     pub content: Option<String>,
 }
 
+/// A single choice in a non-streaming response.
 #[derive(Deserialize)]
 pub struct NonStreamChoice {
     pub message: NonStreamMessage,
 }
 
+/// Message content in a non-streaming response.
 #[derive(Deserialize)]
 pub struct NonStreamMessage {
     pub content: String,
 }
 
+/// Complete non-streaming response from OpenRouter.
 #[derive(Deserialize)]
 pub struct NonStreamResponse {
     pub choices: Vec<NonStreamChoice>,
 }
 
+/// Builds the prompt for commit message generation.
+///
+/// Includes instructions for conventional commit format and the diff/files context.
 pub fn build_prompt(diff: &str, files: &str) -> String {
     format!(
         r#"Generate a git commit message for the following changes.
@@ -117,6 +145,9 @@ Commit message:"#,
     )
 }
 
+/// Builds the prompt for PR title and description generation.
+///
+/// Includes commit list, diff, and files for context.
 pub fn build_pr_prompt(diff: &str, files: &str, commits: &[String]) -> String {
     let commits_text = commits.join("\n");
     format!(
@@ -176,6 +207,9 @@ PR title and description:"#,
     )
 }
 
+/// Streams PR title and body generation from the LLM.
+///
+/// Returns (title, body) tuple. Output is printed token-by-token as it streams.
 pub async fn stream_pr_content(
     client: &Client,
     api_key: &str,
@@ -287,6 +321,10 @@ pub async fn stream_pr_content(
     Ok((title, body))
 }
 
+/// Streams commit message generation from the LLM.
+///
+/// Output is printed token-by-token as it streams. Falls back to non-streaming
+/// parsing if the response doesn't use SSE format.
 pub async fn stream_commit_message(
     client: &Client,
     api_key: &str,
