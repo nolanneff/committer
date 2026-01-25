@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="assets/Icon.png" alt="Committer" width="128" height="128">
-
-# Committer
+<img src="assets/title.png" alt="Committer" width="400">
 
 **AI-powered commits, branches, and pull requests.**
 
