@@ -2,7 +2,7 @@
 
 # Committer
 
-**AI-powered git commit messages, done right.**
+**Lightweight, terminal-native AI commit messages.**
 
 [![Crates.io](https://img.shields.io/crates/v/committer.svg)](https://crates.io/crates/committer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -14,7 +14,7 @@
 
 ---
 
-Committer generates conventional commit messages from your staged changes using LLMs via [OpenRouter](https://openrouter.ai). It streams responses in real-time, handles large diffs intelligently, and stays out of your way.
+A single binary that generates conventional commit messages from your staged changes. Zero config required—just run `committer` and you're done. Customize everything when you need to.
 
 ```bash
 $ git add .
@@ -22,15 +22,24 @@ $ committer
 ✓ feat(auth): add JWT token refresh on expiration
 ```
 
+## Why Committer?
+
+- **Single binary** — One ~4MB executable, no runtime dependencies
+- **Zero config** — Works immediately after install, sensible defaults
+- **Fully automatic** — Run `committer -ay` and walk away
+- **Or fully interactive** — Review, edit, and approve every message
+- **Terminal-native** — Streaming output, no GUI, no browser, no electron
+- **Customizable** — Change models, auto-commit behavior, verbosity when needed
+
 ## Features
 
-- **Conventional commits** — Generates properly formatted `type(scope): description` messages
-- **Streaming output** — Watch messages generate token-by-token
-- **Branch intelligence** — Warns when committing directly to protected branches
+- **Conventional commits** — Properly formatted `type(scope): description` messages
+- **Real-time streaming** — Watch messages generate token-by-token
+- **Branch protection** — Warns before committing to main/master/develop
 - **Pull request generation** — Create PRs with AI-generated titles and descriptions
-- **Smart diff filtering** — Excludes lock files, build artifacts, and minified code
-- **Interactive editing** — Review and edit messages before committing
-- **Model flexibility** — Use any model available on OpenRouter
+- **Smart diff filtering** — Automatically excludes lock files, build artifacts, minified code
+- **Large diff handling** — Intelligently truncates at 300KB to stay within limits
+- **Any model** — Use Claude, GPT-4, Gemini, Llama, or any model on OpenRouter
 
 ## Installation
 
@@ -74,23 +83,35 @@ Download from the [releases page](https://github.com/nolanneff/committer/release
 
 ## Usage
 
-### Generating commits
+### Fully automatic
+
+Stage and commit in one command, no prompts:
 
 ```bash
-# Generate message for staged changes
+committer -ay
+```
+
+That's it. Your changes are committed with an AI-generated message.
+
+### Interactive (default)
+
+Review and optionally edit before committing:
+
+```bash
 committer
+```
 
-# Stage all changes and generate
-committer -a
+You'll see the generated message and can accept, edit, or cancel.
 
-# Skip confirmation and commit immediately
-committer -y
+### All options
 
-# Preview without committing
-committer -d
-
-# Use a specific model
-committer -m anthropic/claude-sonnet-4
+```bash
+committer              # Generate message, prompt for confirmation
+committer -a           # Stage all changes first
+committer -y           # Skip confirmation, commit immediately
+committer -ay          # Stage all + auto-commit (fully automatic)
+committer -d           # Dry run, preview message only
+committer -m <model>   # Use a specific model
 ```
 
 ### Creating pull requests
@@ -128,7 +149,9 @@ committer -B
 
 ## Configuration
 
-Configuration is stored at `~/.config/committer/config.toml`.
+Configuration is **optional**. Committer works out of the box with sensible defaults. Customize only what you need.
+
+Config file: `~/.config/committer/config.toml`
 
 ### Commands
 
@@ -181,17 +204,19 @@ committer config verbose true      # Enable debug output
 ## How it works
 
 1. **Reads staged diff** — Filters out noise (lock files, build artifacts, minified code)
-2. **Truncates if needed** — Large diffs are intelligently trimmed to 300KB
-3. **Streams to LLM** — Sends diff with commit conventions to your chosen model
-4. **Prompts for confirmation** — Review, edit, or cancel before committing
+2. **Sends to LLM** — Streams your diff to OpenRouter with commit conventions
+3. **Returns message** — Displays the result, optionally prompts for confirmation
+4. **Commits** — Runs `git commit` with the generated message
 
-Use `--verbose` to see exactly what's being sent and processed.
+The entire process takes ~2 seconds with fast models. Use `--verbose` to see exactly what's happening.
 
 ## Requirements
 
 - Git
-- [OpenRouter API key](https://openrouter.ai/keys)
-- [GitHub CLI](https://cli.github.com/) (for PR generation only)
+- [OpenRouter API key](https://openrouter.ai/keys) (free tier available)
+- [GitHub CLI](https://cli.github.com/) (only for `committer pr`)
+
+No Node.js. No Python. No Docker. Just a single binary.
 
 ## License
 
