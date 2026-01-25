@@ -53,7 +53,6 @@ Generate PR titles and descriptions from your commits, then create the PR:
 ## Features
 
 - **Conventional commits** — Properly formatted `type(scope): description` messages
-- **Real-time streaming** — Watch messages generate token-by-token
 - **Smart diff filtering** — Automatically excludes lock files, build artifacts, minified code
 - **Large diff handling** — Intelligently truncates at 300KB to stay within limits
 - **Any model** — Use Claude, GPT-4, Gemini, Llama, or any model on OpenRouter
@@ -197,3 +196,4 @@ No Node.js. No Python. No Docker. Just a single binary.
 ## License
 
 MIT © [Nolan Neff](https://github.com/nolanneff)
+
