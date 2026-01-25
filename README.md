@@ -22,19 +22,25 @@ A fast, lightweight CLI that automates your git workflow. Generate commit messag
 
 Generate conventional commits from your staged changes:
 
-<img src="assets/demos/commit.gif" alt="Committer generating a commit message" width="600">
+<p align="center">
+<img src="assets/demos/commit.gif" alt="Committer generating a commit message">
+</p>
 
 ### Branch Detection
 
 Catch mistakes before they happen. Committer analyzes your changes and warns if they don't match your current branch:
 
-<img src="assets/demos/branch.gif" alt="Committer detecting branch misalignment" width="600">
+<p align="center">
+<img src="assets/demos/branch.gif" alt="Committer detecting branch misalignment">
+</p>
 
 ### Pull Requests
 
 Generate PR titles and descriptions from your commits, then create the PR:
 
-<img src="assets/demos/pr.gif" alt="Committer creating a pull request" width="600">
+<p align="center">
+<img src="assets/demos/pr.gif" alt="Committer creating a pull request">
+</p>
 
 ## Features
 
