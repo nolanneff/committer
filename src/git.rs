@@ -467,7 +467,7 @@ pub async fn get_uncommitted_changes() -> Result<UncommittedChanges, Box<dyn std
         if line.len() < 3 {
             continue;
         }
-        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let index_status = line.chars().next().unwrap_or(' ');
         let worktree_status = line.chars().nth(1).unwrap_or(' ');
         let file = &line[3..];
 
