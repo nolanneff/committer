@@ -15,7 +15,7 @@
 
 ---
 
-A fast, lightweight CLI that automates your git workflow. Generate commit messages, detect branch misalignment, create feature branches, and open pull requests—all powered by AI.
+A fast, Simple, lightweight CLI that automates your git workflow. Generate commit messages, detect branch misalignment, create feature branches, and open pull requests—all powered by AI.
 
 Most AI commit tools are built on Node.js or Python, adding noticeable startup delay to every invocation. Committer is a native binary—it launches instantly and streams responses in real-time, so you're never waiting on the tool itself.
 
@@ -172,5 +172,6 @@ This project is under active development. Planned features:
 ## License
 
 MIT © [Nolan Neff](https://github.com/nolanneff)
+
 
 
