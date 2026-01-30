@@ -43,6 +43,10 @@ pub struct Cli {
     #[arg(short = 'B', long)]
     pub auto_branch: bool,
 
+    /// Generate a single-line commit message (no body)
+    #[arg(short = 'o', long)]
+    pub oneline: bool,
+
     /// Show detailed operation logs (excluded files, truncation, etc.)
     #[arg(short = 'v', long)]
     pub verbose: bool,

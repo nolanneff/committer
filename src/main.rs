@@ -244,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::io::stdout().flush().ok();
 
     let message_result =
-        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner, verbose).await;
+        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner, verbose, cli.oneline).await;
 
     let _ = term.show_cursor();
     let message = message_result?;

@@ -84,10 +84,16 @@ pub struct NonStreamResponse {
 /// Builds the prompt for commit message generation.
 ///
 /// Includes instructions for conventional commit format and the diff/files context.
-pub fn build_prompt(diff: &str, files: &str) -> String {
+pub fn build_prompt(diff: &str, files: &str, oneline: bool) -> String {
+    let oneline_instruction = if oneline {
+        "\nCRITICAL INSTRUCTION: Generate ONLY a single line. Format: type(scope): description (under 72 chars). Do NOT add bullet points, body text, or blank lines. Output exactly ONE line and nothing else.\n"
+    } else {
+        ""
+    };
+
     format!(
         r#"Generate a git commit message for the following changes.
-
+{oneline_instruction}
 FORMAT: type(scope): description
 
 TYPES (use lowercase):
@@ -140,6 +146,7 @@ Diff:
 {diff}
 
 Commit message:"#,
+        oneline_instruction = oneline_instruction,
         files = files,
         diff = diff
     )
@@ -334,8 +341,9 @@ pub async fn stream_commit_message(
     files: &str,
     spinner: &ProgressBar,
     verbose: bool,
+    oneline: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let prompt = build_prompt(diff, files);
+    let prompt = build_prompt(diff, files, oneline);
 
     let request = ChatRequest {
         model: model.to_string(),

@@ -269,6 +269,7 @@ pub async fn handle_pr_command(
                         &commit_files,
                         &spinner,
                         verbose,
+                        false,
                     )
                     .await?;
 
