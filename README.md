@@ -102,7 +102,9 @@ committer -a           # Stage all changes first
 committer -y           # Skip confirmation, commit immediately
 committer -ay          # Stage all + auto-commit (fully automatic)
 committer -d           # Dry run, preview message only
+committer -o           # Generate single-line message (no body)
 committer -m <model>   # Use a specific model
+committer -v           # Show verbose output
 ```
 
 ### Branches
@@ -115,9 +117,12 @@ committer -B           # Auto-create suggested branches
 ### Pull Requests
 
 ```bash
-committer pr           # Create PR with AI-generated title/description
-committer pr --draft   # Create as draft
-committer pr -d        # Preview without creating
+committer pr              # Create PR with AI-generated title/description
+committer pr --draft      # Create as draft
+committer pr -d           # Preview without creating
+committer pr -y           # Create without confirmation
+committer pr --base main  # Specify base branch (auto-detected by default)
+committer pr -m <model>   # Use a specific model
 ```
 
 **Requires:** [GitHub CLI](https://cli.github.com/) (`gh auth login`)
@@ -131,18 +136,20 @@ Config file: `~/.config/committer/config.toml`
 ### Commands
 
 ```bash
-committer config show              # View current settings
-committer config model <model>     # Set default model
-committer config auto-commit true  # Skip confirmations
-committer config verbose true      # Enable debug output
+committer config show                     # View current settings
+committer config model <model>            # Set default model
+committer config auto-commit true         # Skip confirmations
+committer config commit-after-branch true # Auto-commit after creating branch
+committer config verbose true             # Enable debug output
 ```
 
 ### Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `model` | `google/gemini-2.0-flash-001` | Default model |
+| `model` | `google/gemini-3-flash-preview` | Default model |
 | `auto_commit` | `false` | Skip confirmation prompts |
+| `commit_after_branch` | `false` | Auto-commit after creating branch via `b` option |
 | `verbose` | `false` | Show detailed logs |
 
 ### Environment variables
