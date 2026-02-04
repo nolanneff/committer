@@ -171,6 +171,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Pr(args) => {
                 return handle_pr_command(args, &config).await;
             }
+            Commands::Clean(_args) => {
+                eprintln!("{} clean subcommand not yet implemented", style("error:").red().bold());
+                std::process::exit(1);
+            }
         }
     }
 

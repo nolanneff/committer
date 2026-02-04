@@ -62,6 +62,8 @@ pub enum Commands {
     },
     /// Generate and create a pull request
     Pr(PrArgs),
+    /// Analyze and clean up branches
+    Clean(CleanArgs),
 }
 
 /// Arguments for the `pr` subcommand.
@@ -82,6 +84,22 @@ pub struct PrArgs {
     /// Override base branch (default: auto-detect)
     #[arg(short, long)]
     pub base: Option<String>,
+
+    /// Show detailed operation logs
+    #[arg(short = 'v', long)]
+    pub verbose: bool,
+
+    /// Override model for this run
+    #[arg(short, long)]
+    pub model: Option<String>,
+}
+
+/// Arguments for the `clean` subcommand.
+#[derive(Parser)]
+pub struct CleanArgs {
+    /// Show analysis only, don't perform any actions
+    #[arg(short, long)]
+    pub dry_run: bool,
 
     /// Show detailed operation logs
     #[arg(short = 'v', long)]
