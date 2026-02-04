@@ -1,6 +1,6 @@
 [package]
 name = "committer-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Fast AI-powered git commit message generator"
 license = "MIT"
