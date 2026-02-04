@@ -155,6 +155,13 @@ committer config verbose true             # Enable debug output
 ### Environment variables
 
 - `OPENROUTER_API_KEY` — API key (required)
+- `EDITOR` — Editor for commit message editing (optional)
+
+#### Windows note
+
+Windows 11's new tabbed Notepad has issues saving temp files when using the `[e] Edit` option. It may open "Save As" to the wrong directory instead of saving in place.
+
+Set the `EDITOR` environment variable to a different editor like VS Code, Notepad++, or classic Notepad (`C:\Windows\notepad.exe`).
 
 ## Requirements
 

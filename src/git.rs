@@ -25,6 +25,33 @@ use console::{style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::Command;
 
+/// Checks if git is installed and accessible.
+///
+/// Returns an error with a helpful message if git is not found.
+pub async fn check_git_installed() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git").args(["--version"]).output().await;
+
+    match output {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(_) => Err("Git is installed but returned an error. Please check your git installation.".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(format!(
+                "{} Git is not installed or not in PATH\n\n\
+                 Committer requires git to function. Please install git:\n\n\
+                 {}  Windows:  https://git-scm.com/download/win\n\
+                 {}  macOS:    brew install git\n\
+                 {}  Linux:    sudo apt install git  (or your distro's package manager)\n\n\
+                 After installing, restart your terminal and try again.",
+                style("✗").red(),
+                style("→").dim(),
+                style("→").dim(),
+                style("→").dim(),
+            ).into())
+        }
+        Err(e) => Err(format!("Failed to check for git: {}", e).into()),
+    }
+}
+
 /// File patterns excluded from diffs to reduce noise.
 pub const EXCLUDED_FROM_DIFF: &[&str] = &[
     // Lock files

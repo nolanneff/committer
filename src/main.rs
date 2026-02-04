@@ -49,8 +49,8 @@ use branch::{
 use cli::{Cli, Commands, ConfigAction};
 use config::{config_path, get_api_key, load_config, save_config};
 use git::{
-    create_and_switch_branch, get_current_branch, get_git_diff, get_recent_commits,
-    get_staged_files, run_git_commit, stage_all_changes,
+    check_git_installed, create_and_switch_branch, get_current_branch, get_git_diff,
+    get_recent_commits, get_staged_files, run_git_commit, stage_all_changes,
 };
 use pr::handle_pr_command;
 use ui::{prompt_branch_action, prompt_commit, CommitAction};
@@ -173,6 +173,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    // Verify git is installed before any git operations
+    check_git_installed().await?;
 
     // Get API key
     let api_key = match get_api_key() {

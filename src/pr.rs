@@ -27,10 +27,10 @@ use crate::branch::PROTECTED_BRANCHES;
 use crate::cli::PrArgs;
 use crate::config::{get_api_key, Config};
 use crate::git::{
-    branch_has_merge_base, get_branch_commits, get_branch_diff, get_cached_remote_head,
-    get_current_branch, get_git_diff, get_pr_changed_files, get_remote_default_branch,
-    get_staged_files, get_uncommitted_changes, get_upstream_remote, push_branch_with_spinner,
-    run_git_commit, stage_all_changes,
+    branch_has_merge_base, check_git_installed, get_branch_commits, get_branch_diff,
+    get_cached_remote_head, get_current_branch, get_git_diff, get_pr_changed_files,
+    get_remote_default_branch, get_staged_files, get_uncommitted_changes, get_upstream_remote,
+    push_branch_with_spinner, run_git_commit, stage_all_changes,
 };
 use crate::ui::{
     prompt_commit, prompt_pr, prompt_uncommitted_changes, CommitAction, PrAction, UncommittedAction,
@@ -184,6 +184,9 @@ pub async fn handle_pr_command(
     args: PrArgs,
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Check git is installed
+    check_git_installed().await?;
+
     // Check gh CLI is installed
     check_gh_installed().await?;
 
