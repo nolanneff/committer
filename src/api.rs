@@ -360,7 +360,7 @@ pub async fn stream_commit_message(
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("X-Title", "Committer")
-        .header("HTTP-Referer", "https://github.com/Nolanneff/commiter")
+        .header("HTTP-Referer", "https://github.com/nolanneff/committer")
         .json(&request)
         .send()
         .await?;
