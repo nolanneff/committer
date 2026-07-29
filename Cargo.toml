@@ -2,6 +2,7 @@
 name = "committer-cli"
 version = "0.1.2"
 edition = "2021"
+rust-version = "1.86"
 description = "Fast AI-powered git commits, branches, and pull requests"
 license = "MIT"
 repository = "https://github.com/nolanneff/committer"
