@@ -33,21 +33,22 @@ pub async fn check_git_installed() -> Result<(), Box<dyn std::error::Error>> {
 
     match output {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(_) => Err("Git is installed but returned an error. Please check your git installation.".into()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Err(format!(
-                "{} Git is not installed or not in PATH\n\n\
+        Ok(_) => Err(
+            "Git is installed but returned an error. Please check your git installation.".into(),
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(format!(
+            "{} Git is not installed or not in PATH\n\n\
                  Committer requires git to function. Please install git:\n\n\
                  {}  Windows:  https://git-scm.com/download/win\n\
                  {}  macOS:    brew install git\n\
                  {}  Linux:    sudo apt install git  (or your distro's package manager)\n\n\
                  After installing, restart your terminal and try again.",
-                style("✗").red(),
-                style("→").dim(),
-                style("→").dim(),
-                style("→").dim(),
-            ).into())
-        }
+            style("✗").red(),
+            style("→").dim(),
+            style("→").dim(),
+            style("→").dim(),
+        )
+        .into()),
         Err(e) => Err(format!("Failed to check for git: {}", e).into()),
     }
 }
