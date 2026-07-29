@@ -44,7 +44,7 @@ mod git;
 mod pr;
 mod ui;
 
-use api::stream_commit_message;
+use api::{stream_commit_message, CommitMessageOptions};
 use branch::{
     analyze_branch_alignment, generate_branch_suggestion, generate_fallback_branch, BranchAction,
 };
@@ -252,8 +252,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure spinner renders before starting API call
     std::io::stdout().flush().ok();
 
-    let message_result =
-        stream_commit_message(&client, &api_key, model, &diff, &files, &spinner, verbose, cli.oneline).await;
+    let message_result = stream_commit_message(
+        &client,
+        &api_key,
+        model,
+        &diff,
+        &files,
+        &spinner,
+        CommitMessageOptions {
+            verbose,
+            oneline: cli.oneline,
+        },
+    )
+    .await;
 
     let _ = term.show_cursor();
     let message = message_result?;

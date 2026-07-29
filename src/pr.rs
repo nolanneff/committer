@@ -22,7 +22,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use tokio::process::Command;
 
-use crate::api::{stream_commit_message, stream_pr_content};
+use crate::api::{stream_commit_message, stream_pr_content, CommitMessageOptions};
 use crate::branch::PROTECTED_BRANCHES;
 use crate::cli::PrArgs;
 use crate::config::{get_api_key, Config};
@@ -271,8 +271,10 @@ pub async fn handle_pr_command(
                         &commit_diff,
                         &commit_files,
                         &spinner,
-                        verbose,
-                        false,
+                        CommitMessageOptions {
+                            verbose,
+                            oneline: false,
+                        },
                     )
                     .await?;
 

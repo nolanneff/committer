@@ -329,6 +329,12 @@ pub async fn stream_pr_content(
     Ok((title, body))
 }
 
+/// Options for commit-message generation.
+pub struct CommitMessageOptions {
+    pub verbose: bool,
+    pub oneline: bool,
+}
+
 /// Streams commit message generation from the LLM.
 ///
 /// Output is printed token-by-token as it streams. Falls back to non-streaming
@@ -340,9 +346,9 @@ pub async fn stream_commit_message(
     diff: &str,
     files: &str,
     spinner: &ProgressBar,
-    verbose: bool,
-    oneline: bool,
+    options: CommitMessageOptions,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let CommitMessageOptions { verbose, oneline } = options;
     let prompt = build_prompt(diff, files, oneline);
 
     let request = ChatRequest {
