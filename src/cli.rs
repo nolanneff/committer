@@ -8,6 +8,7 @@
 //! - Default (no subcommand): Generate and create a commit
 //! - `config`: Manage persistent configuration
 //! - `pr`: Generate and create a pull request
+//! - `clean`: Remove fully merged local branches
 
 use clap::{Parser, Subcommand};
 
@@ -104,10 +105,6 @@ pub struct CleanArgs {
     /// Show detailed operation logs
     #[arg(short = 'v', long)]
     pub verbose: bool,
-
-    /// Override model for this run
-    #[arg(short, long)]
-    pub model: Option<String>,
 }
 
 /// Configuration subcommand actions.

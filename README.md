@@ -127,6 +127,16 @@ committer pr -m <model>   # Use a specific model
 
 **Requires:** [GitHub CLI](https://cli.github.com/) (`gh auth login`)
 
+### Branch Cleanup
+
+```bash
+committer clean          # Review and delete safely merged local branches
+committer clean -d       # Preview without switching or deleting
+committer clean -v       # Show base-branch and GitHub lookup details
+```
+
+Cleanup uses Git ancestry plus merged GitHub PR head SHAs, so it recognizes squash/rebase merges without deleting branches that gained newer commits. It only deletes local branches; if GitHub CLI is unavailable, it safely falls back to Git ancestry.
+
 ## Configuration
 
 Configuration is **optional**. Committer works out of the box with sensible defaults. Customize only what you need.
@@ -167,7 +177,7 @@ Set the `EDITOR` environment variable to a different editor like VS Code, Notepa
 
 - Git
 - [OpenRouter API key](https://openrouter.ai/keys) (free tier available)
-- [GitHub CLI](https://cli.github.com/) (only for `committer pr`)
+- [GitHub CLI](https://cli.github.com/) (required for `committer pr`, optional for PR-aware `committer clean`)
 
 ## Roadmap
 

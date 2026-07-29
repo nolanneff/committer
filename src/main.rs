@@ -13,6 +13,7 @@
 //!
 //! - [`api`]: OpenRouter API integration
 //! - [`branch`]: Branch analysis and naming
+//! - [`clean`]: Safe cleanup of merged local branches
 //! - [`cli`]: Command-line interface
 //! - [`config`]: Configuration management
 //! - [`git`]: Git operations
@@ -36,6 +37,7 @@ use tokio::process::Command;
 
 mod api;
 mod branch;
+mod clean;
 mod cli;
 mod config;
 mod git;
@@ -46,6 +48,7 @@ use api::stream_commit_message;
 use branch::{
     analyze_branch_alignment, generate_branch_suggestion, generate_fallback_branch, BranchAction,
 };
+use clean::handle_clean_command;
 use cli::{Cli, Commands, ConfigAction};
 use config::{config_path, get_api_key, load_config, save_config};
 use git::{
@@ -171,9 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Pr(args) => {
                 return handle_pr_command(args, &config).await;
             }
-            Commands::Clean(_args) => {
-                eprintln!("{} clean subcommand not yet implemented", style("error:").red().bold());
-                std::process::exit(1);
+            Commands::Clean(args) => {
+                return handle_clean_command(args).await;
             }
         }
     }

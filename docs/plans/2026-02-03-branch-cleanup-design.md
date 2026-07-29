@@ -1,5 +1,7 @@
 # Design: `committer clean` - AI-Powered Branch Cleanup
 
+> **Status:** Superseded. The shipped command uses Git ancestry and exact merged-PR head SHAs to clean local branches safely. AI grouping, remote deletion, and branch combining were deliberately deferred.
+
 ## Overview
 
 A command that analyzes all local branches using AI, groups related work, and provides interactive prompts to clean up merged branches and consolidate unmerged work.
