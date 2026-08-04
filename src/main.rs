@@ -53,7 +53,7 @@ use cli::{Cli, Commands, ConfigAction};
 use config::{config_path, get_api_key, load_config, save_config};
 use git::{
     check_git_installed, create_and_switch_branch, get_current_branch, get_git_diff,
-    get_recent_commits, get_staged_files, run_git_commit, stage_all_changes,
+    get_recent_commits, get_staged_files, run_git_commit, stage_all_changes, stage_update_changes,
 };
 use pr::handle_pr_command;
 use ui::{prompt_branch_action, prompt_commit, CommitAction};
@@ -196,9 +196,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Stage all changes if requested
+    // Stage changes if requested (-a wins over -u)
     if cli.all {
         stage_all_changes().await?;
+    } else if cli.update {
+        stage_update_changes().await?;
     }
 
     // Determine verbose mode (CLI flag overrides config)

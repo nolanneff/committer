@@ -7,7 +7,7 @@
 //! - **Diff truncation**: Limits size to stay within LLM token limits
 //! - **Status queries**: [`get_staged_files`], [`get_uncommitted_changes`]
 //! - **Branch operations**: [`get_current_branch`], [`create_and_switch_branch`]
-//! - **Commit operations**: [`run_git_commit`], [`stage_all_changes`]
+//! - **Commit operations**: [`run_git_commit`], [`stage_all_changes`], [`stage_update_changes`]
 //! - **Push operations**: [`push_branch_with_spinner`]
 //!
 //! # Diff Filtering
@@ -322,6 +322,18 @@ pub async fn run_git_commit(message: &str) -> Result<(), Box<dyn std::error::Err
 /// Stages all changes (tracked and untracked) via `git add -A`.
 pub async fn stage_all_changes() -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("git").args(["add", "-A"]).output().await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git add failed: {}", stderr).into());
+    }
+
+    Ok(())
+}
+
+/// Stages modifications to tracked files only, skipping untracked files via `git add -u`.
+pub async fn stage_update_changes() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git").args(["add", "-u"]).output().await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
