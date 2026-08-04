@@ -99,6 +99,7 @@ Download from the [releases page](https://github.com/nolanneff/committer/release
 ```bash
 committer              # Generate message, prompt for confirmation
 committer -a           # Stage all changes first
+committer -u           # Stage modified tracked files only, skip untracked
 committer -y           # Skip confirmation, commit immediately
 committer -ay          # Stage all + auto-commit (fully automatic)
 committer -d           # Dry run, preview message only

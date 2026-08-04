@@ -32,6 +32,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub all: bool,
 
+    /// Stage modified tracked files only, skip untracked (git add -u)
+    #[arg(short, long)]
+    pub update: bool,
+
     /// Override model for this run
     #[arg(short, long)]
     pub model: Option<String>,
